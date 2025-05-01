@@ -101,6 +101,12 @@ public class AppConfig {
      */
     public boolean ignoreSSLCertificate;
 
+
+    /**
+     * 是否忽略对http协议中content-length的校验
+     */
+    public boolean ignoreHttpContentLength;
+
     /**
      * 测试模式，开启后每次都会重头更新，会增加流量消耗，仅用来测试更新时网速
      */
@@ -122,6 +128,7 @@ public class AppConfig {
         int httpTimeout = getInt(map, "http-timeout", null, 7000);
         int reties = getInt(map, "retries", "http-retries", 3);
         boolean ignoreSSLCertificate = getBoolean(map, "ignore-ssl-cert", "http-ignore-certificate", false);
+        boolean ignoreHttpContentLength = getBoolean(map, "ignore-http-content-length", "", false);
         boolean testMode = getBoolean(map, "test-mode", null, false);
 
 //        if (urls.contains("webda"))
@@ -141,6 +148,7 @@ public class AppConfig {
         this.httpTimeout = httpTimeout;
         this.reties = reties;
         this.ignoreSSLCertificate = ignoreSSLCertificate;
+        this.ignoreHttpContentLength = ignoreHttpContentLength;
         this.testMode = testMode;
     }
 

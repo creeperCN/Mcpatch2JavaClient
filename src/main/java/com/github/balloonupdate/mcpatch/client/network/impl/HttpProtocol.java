@@ -177,17 +177,20 @@ public class HttpProtocol implements UpdatingServer {
                 throw new McpatchBusinessException(content);
             }
 
-            // 检查content-length
-            long len = rsp.body().contentLength();
+            if (!config.ignoreHttpContentLength)
+            {
+                // 检查content-length
+                long len = rsp.body().contentLength();
 
-            if (len == -1) {
-                throw new McpatchBusinessException(String.format("服务器(%d)没有返回 content-length 头：%s (%s)", number, path, desc));
-            }
+                if (len == -1) {
+                    throw new McpatchBusinessException(String.format("服务器(%d)没有返回 content-length 头：%s (%s)", number, path, desc));
+                }
 
-            if (range.len() > 0 && len != range.len()) {
-                String text = String.format("服务器(%d)返回的 content-length 头 %d 不等于 %d: %s", number, len, range.len(), path);
+                if (range.len() > 0 && len != range.len()) {
+                    String text = String.format("服务器(%d)返回的 content-length 头 %d 不等于 %d: %s", number, len, range.len(), path);
 
-                throw new McpatchBusinessException(text);
+                    throw new McpatchBusinessException(text);
+                }
             }
 
             return rsp;
