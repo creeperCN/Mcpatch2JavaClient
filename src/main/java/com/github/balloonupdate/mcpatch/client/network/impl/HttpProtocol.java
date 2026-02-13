@@ -199,7 +199,7 @@ public class HttpProtocol implements UpdatingServer {
         } catch (SocketException e) {
             throw new McpatchBusinessException("连接中断，请检查网络。" + url, e);
         } catch (SocketTimeoutException e) {
-            throw new McpatchBusinessException("连接超市，请检查网络。" + url, e);
+            throw new McpatchBusinessException("连接超时，请检查网络。" + url, e);
         } catch (Exception e) {
             throw new McpatchBusinessException(e);
         }
