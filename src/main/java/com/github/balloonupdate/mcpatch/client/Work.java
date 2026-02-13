@@ -187,6 +187,13 @@ public class Work {
                 }
             }
 
+//            Log.info("下载的元数据: ");
+//            for (TempVersionMeta versionMeta : versionMetas) {
+//                for (FileChange change : versionMeta.metadata.changes) {
+//                    Log.debug(versionMeta.metadata.label + " : " + change);
+//                }
+//            }
+
             // 定位临时目录
             Path tempDir = baseDir.resolve(".mcpatch-temp");
 
@@ -428,7 +435,7 @@ public class Work {
                     // 空文件不需要下载
                     if (f.length == 0) {
                         Files.createFile(f.tempPath);
-                        break;
+                        continue;
                     }
 
                     // 展示即将要开始下载内容

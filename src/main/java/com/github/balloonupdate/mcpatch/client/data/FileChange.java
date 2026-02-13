@@ -12,6 +12,11 @@ public interface FileChange {
          * 要创建目录的路径
          */
         public String path;
+
+        @Override
+        public String toString() {
+            return "create folder: " + path;
+        }
     }
 
     /**
@@ -42,6 +47,11 @@ public interface FileChange {
          * 文件二进制数据在更新包中的偏移值
          */
         public long offset;
+
+        @Override
+        public String toString() {
+            return "update file: " + path + " (" + len + ")";
+        }
     }
 
     /**
@@ -52,6 +62,11 @@ public interface FileChange {
          * 要删除的目录的路径
          */
         public String path;
+
+        @Override
+        public String toString() {
+            return "delete folder: " + path;
+        }
     }
 
     /**
@@ -62,6 +77,11 @@ public interface FileChange {
          * 要删除的文件的路径
          */
         public String path;
+
+        @Override
+        public String toString() {
+            return "delete file: " + path;
+        }
     }
 
     /**
@@ -77,5 +97,10 @@ public interface FileChange {
          * 文件到哪里去
          */
         public String to;
+
+        @Override
+        public String toString() {
+            return "move: " + from + " => " + to;
+        }
     }
 }
