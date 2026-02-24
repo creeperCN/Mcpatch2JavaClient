@@ -29,10 +29,14 @@ public class AppConfig {
     public boolean allowError;
 
     /**
-     * 在没有更新时，是否显示“资源文件暂无更新!”提示框<p>
-     * 在有更新时，此选项不生效
+     * 在没有更新时，是否显示“资源文件暂无更新!”提示框
      */
-    public boolean showFinishMessage;
+    public boolean showNoUpdateMessage;
+
+    /**
+     * 在有更新时，是否显示更新日志提示框
+     */
+    public boolean showHasUpdateMessage;
 
     /**
      * 自动关闭更新日志的时间，单位为毫秒。设置为0代表不会自动关闭更新日志窗口，需要手点
@@ -117,11 +121,12 @@ public class AppConfig {
         List<String> urls = getList(map, "urls", null, new ArrayList<>());
         String versionFilePath = getString(map, "version-file-path", null, "version-label.txt");
         boolean allowError = getBoolean(map, "allow-error", null, false);
-        boolean showFinishMessage = getBoolean(map, "show-finish-message", null, true);
+        boolean showNoUpdateMessage = getBoolean(map, "show-no-update-message", "show-finish-message", true);
+        boolean showHasUpdateMessage = getBoolean(map, "show-has-update-message", "show-finish-message", true);
         int autoCloseChangelogs = getInt(map, "auto-close-changelogs", null, 0);
         boolean silentMode = getBoolean(map, "silent-mode", null, false);
         boolean disableTheme = getBoolean(map, "disable-theme", null, false);
-        String windowTitle = getString(map, "window-title", null, "Mcpatch");
+        String windowTitle = getString(map, "window-title", "changelogs_window_title", "Mcpatch");
         String basePath = getString(map, "base-path", null, "");
         int privateTimeout = getInt(map, "private-timeout", null, 7000);
         Map<String, String> httpHeaders = getMap(map, "http-headers", null, new HashMap<>());
@@ -137,7 +142,8 @@ public class AppConfig {
         this.urls = urls;
         this.versionFilePath = versionFilePath;
         this.allowError = allowError;
-        this.showFinishMessage = showFinishMessage;
+        this.showNoUpdateMessage = showNoUpdateMessage;
+        this.showHasUpdateMessage = showHasUpdateMessage;
         this.autoCloseChangelogs = autoCloseChangelogs;
         this.silentMode = silentMode;
         this.windowTitle = windowTitle;

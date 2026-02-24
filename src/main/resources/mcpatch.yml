@@ -27,8 +27,10 @@ version-file-path: version-label.txt
 allow-error: false
 
 # 在没有更新时，是否显示“资源文件暂无更新!”提示框
-# 在有更新时，此选项不生效
-show-finish-message: true
+show-no-update-message: true
+
+# 在有更新时，是否显示更新日志提示框
+show-has-update-message: true
 
 # 自动关闭更新日志的时间，单位为毫秒。设置为0代表不会自动关闭更新日志窗口，需要手点
 auto-close-changelogs: 0

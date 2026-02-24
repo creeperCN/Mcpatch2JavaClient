@@ -609,9 +609,9 @@ public class Work {
 
             // 3.弹出更新记录窗口
             if (window != null) {
-                String content = String.format("已经从 %s 更新到 %s\r\n\r\n%s", currentVersion, latestVersion, changelogs.trim().replace("\n", "\r\n"));
+                if (!missingVersions.isEmpty() && config.showHasUpdateMessage) {
+                    String content = String.format("已经从 %s 更新到 %s\r\n\r\n%s", currentVersion, latestVersion, changelogs.trim().replace("\n", "\r\n"));
 
-                if (config.showFinishMessage) {
                     ChangeLogs cl = new ChangeLogs();
 
                     cl.setTitleText(config.windowTitle);
@@ -634,7 +634,7 @@ public class Work {
             if (window != null) {
                 window.setLabelText("暂时没有更新");
 
-                if (config.showFinishMessage) {
+                if (config.showNoUpdateMessage) {
                     String title = config.windowTitle;
                     String content = "暂时没有更新，当前版本：" + currentVersion;
 
