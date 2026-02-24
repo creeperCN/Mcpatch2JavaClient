@@ -89,8 +89,8 @@ public class Main {
             InitConsoleLogging(graphicsMode, enableLogFile);
 
             // 准备各种目录
-            Path workDir = getWorkDirectory();
-            Path progDir = getProgramDirectory(workDir);
+            Path progDir = getProgramDirectory();
+            Path workDir = getWorkDirectory(progDir);
             AppConfig config = new AppConfig(readConfig(progDir.resolve("mcpatch.yml")));
             Path baseDir = getUpdateDirectory(workDir, config);
 
@@ -210,10 +210,21 @@ public class Main {
     /**
      * 获取Jar文件所在的目录
      */
-    static Path getProgramDirectory(Path workDir)
+    static Path getProgramDirectory()
     {
-        if (Env.isDevelopment())
-            return workDir.resolve("test");
+        if (Env.isDevelopment()) {
+            String devWorkDir = System.getenv("MCPATCH_DEV_WORK_DIR");
+            String devProgDir = System.getenv("MCPATCH_DEV_PROG_DIR");
+
+            // 优先用环境变量里的
+            if (devWorkDir != null && devProgDir != null) {
+                return Paths.get(devProgDir);
+            }
+
+            // 然后用test文件夹
+            Path userDir = Paths.get(System.getProperty("user.dir"));
+            return userDir.resolve("test");
+        }
 
         return Env.getJarPath().getParent();
     }
@@ -221,14 +232,26 @@ public class Main {
     /**
      * 获取进程的工作目录
      */
-    static Path getWorkDirectory() {
+    static Path getWorkDirectory(Path progDir) {
         Path userDir = Paths.get(System.getProperty("user.dir"));
 
         if (Env.isDevelopment()) {
-            Path testDir = userDir.resolve("test");
+            String devWorkDir = System.getenv("MCPATCH_DEV_WORK_DIR");
+            String devProgDir = System.getenv("MCPATCH_DEV_PROG_DIR");
+
+            Path workDir;
+
+            // 优先用环境变量里的
+            if (devWorkDir != null && devProgDir != null) {
+                workDir = Paths.get(devWorkDir);
+            } else {
+                // 同程序文件夹
+                workDir = progDir;
+            }
 
             try {
-                Files.createDirectories(testDir);
+                Files.createDirectories(workDir);
+                return workDir;
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }
@@ -247,7 +270,7 @@ public class Main {
     static Path getUpdateDirectory(Path workDir, AppConfig config) throws McpatchBusinessException {
         // 开发环境下直接返回工作目录
         if (Env.isDevelopment())
-            return workDir.resolve("test");
+            return workDir;
 
         // 如果填写了base-path，就使用
         if (!config.basePath.equals("")) {

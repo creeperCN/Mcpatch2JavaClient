@@ -18,4 +18,9 @@ public class TempVersionMeta {
         this.filename = filename;
         this.metadata = metadata;
     }
+
+    @Override
+    public String toString() {
+        return metadata.label + "(" + metadata.changes.size() + " changes)";
+    }
 }

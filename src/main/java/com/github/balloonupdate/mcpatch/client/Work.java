@@ -272,9 +272,9 @@ public class Work {
                             // 不能和别人的to冲突了
                             RuntimeAssert.isTrue(!moveFiles.stream().anyMatch(e -> e.to.equals(op.to)));
 
-                            // 更新下载路径
+                            // 修改下载目的地为新的路径
                             find.get().path = op.to;
-
+                            find.get().tempPath = tempDir.resolve(find.get().path + ".temp");
                         } else {
                             // 不能和别人的from或者to冲突了
                             RuntimeAssert.isTrue(!moveFiles.stream().anyMatch(e -> e.from.equals(op.from) || e.to.equals(op.to)));
@@ -324,7 +324,6 @@ public class Work {
                     break;
 
                 TempUpdateFile f = updateFiles.get(i);
-
                 Path targetPath = baseDir.resolve(f.path);
 
                 // 检查一下看能不能跳过下载
@@ -343,11 +342,12 @@ public class Work {
                 }
 
                 // 2.判断文件时间
-                long timeDiff = (mtime.toMillis() / 1000 - f.modified);
+                long timeDiff = Math.abs(mtime.toMillis() / 1000 - f.modified);
 
 //                Log.debug(f.path + " : " + timeDiff);
 
-                if (timeDiff < 5) {
+                // 超过5秒视作是不同文件
+                if (timeDiff > 5) {
                     continue;
                 }
 
@@ -427,7 +427,8 @@ public class Work {
             for (TempUpdateFile f : updateFiles) {
                 String filename = PathUtility.getFilename(f.path);
 
-                Log.debug("  a.开始下载 " + f.tempPath);
+                Log.debug("  a.开始下载 " + f.path);
+                Log.debug("    Download " + f.tempPath);
 
                 Path tempDirectory = f.tempPath.getParent();
                 Files.createDirectories(tempDirectory);
@@ -504,6 +505,8 @@ public class Work {
 
                 Path path = baseDir.resolve(f);
 
+                Log.debug("    MKDIR " + path);
+
                 Files.createDirectories(path);
             }
 
@@ -519,6 +522,9 @@ public class Work {
 
                 Path from = baseDir.resolve(move.from);
                 Path to = baseDir.resolve(move.to);
+
+                Log.debug("    From " + from);
+                Log.debug("    To   " + to);
 
                 if (Files.exists(from)) {
                     Files.move(from, to);
@@ -551,9 +557,28 @@ public class Work {
                 Path from = f.tempPath;
                 Path to = baseDir.resolve(f.path);
 
-                Log.debug(String.format("  e.移动临时文件 %s.temp => %s", f.path, f.path));
+                Log.debug(String.format("  e.移动临时文件 %s", f.path));
+                Log.debug(String.format("    From %s", from));
+                Log.debug(String.format("    To   %s", to));
 
-                PathUtility.delete(to);
+                if (Files.exists(to)) {
+                    Log.debug("    目标文件存在，先进行删除");
+                    PathUtility.delete(to);
+                }
+
+                if (!Files.exists(from.getParent())) {
+                    throw new McpatchBusinessException("移动临时文件时，源文件上级目录不存在: " + from.getParent());
+                }
+
+                Files.createDirectories(to.getParent());
+
+                if (!Files.exists(to.getParent())) {
+                    throw new McpatchBusinessException("移动临时文件时，目标文件上级目录不存在: " + to.getParent());
+                }
+
+                if (!Files.exists(from)) {
+                    throw new McpatchBusinessException("移动临时文件时，要被移动的源文件不存在: " + from);
+                }
 
                 Files.move(from, to);
             }

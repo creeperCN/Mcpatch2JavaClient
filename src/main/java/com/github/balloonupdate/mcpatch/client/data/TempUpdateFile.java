@@ -58,4 +58,9 @@ public class TempUpdateFile {
 
         this.tempPath = tempPath;
     }
+
+    @Override
+    public String toString() {
+        return path + " (" + label + ")";
+    }
 }
