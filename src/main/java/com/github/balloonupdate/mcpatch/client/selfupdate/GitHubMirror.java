@@ -99,17 +99,6 @@ public class GitHubMirror {
     }
 
     /**
-     * 兼容旧方法：转换 URL（自动判断类型）
-     */
-    public static String convertToMirrorUrl(String originalUrl) {
-        if (originalUrl.contains("api.github.com")) {
-            return convertApiUrl(originalUrl);
-        } else {
-            return convertDownloadUrl(originalUrl);
-        }
-    }
-
-    /**
      * 当 API 请求失败时，切换到下一个镜像
      */
     public static String getNextApiMirrorUrl(String failedUrl, String originalUrl) {
@@ -183,19 +172,6 @@ public class GitHubMirror {
         if (cachedDownloadMirror == null && currentDownloadMirrorIndex < DOWNLOAD_MIRROR_URLS.length) {
             cachedDownloadMirror = DOWNLOAD_MIRROR_URLS[currentDownloadMirrorIndex];
             Log.debug("缓存下载镜像站: " + cachedDownloadMirror);
-        }
-    }
-
-    /**
-     * 兼容旧方法
-     */
-    public static void markCurrentMirrorSuccess() {
-        // 根据当前状态判断是哪个镜像
-        if (cachedApiMirror == null) {
-            markApiMirrorSuccess();
-        }
-        if (cachedDownloadMirror == null) {
-            markDownloadMirrorSuccess();
         }
     }
 
