@@ -124,9 +124,14 @@ public class GitHubReleaseClient {
                     info.fileSize = asset.optLong("size", 0);
 
                     // 尝试从 digest 字段获取 SHA-256（GitHub API 提供）
-                    info.checksum = asset.optString("digest", null);
-                    if (info.checksum != null && !info.checksum.isEmpty()) {
-                        Log.debug("文件校验值(SHA-256): " + info.checksum);
+                    String digest = asset.optString("digest", null);
+                    if (digest != null && !digest.isEmpty()) {
+                        // GitHub API 返回格式为 "sha256:xxxx"，去掉前缀
+                        if (digest.startsWith("sha256:")) {
+                            digest = digest.substring(7);
+                        }
+                        info.checksum = digest;
+                        Log.debug("文件校验值(SHA-256): " + digest);
                     } else {
                         Log.debug("GitHub Release 未提供 digest，下载后无法校验完整性");
                     }
