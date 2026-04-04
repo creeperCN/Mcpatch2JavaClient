@@ -128,9 +128,10 @@ public class Main {
             }
 
             // ========== 客户端自身更新检查 ==========
-            // 检查配置是否启用自更新
             if (config.clientUpdate != null && config.clientUpdate.enabled) {
                 try {
+                    Log.info("正在检查客户端自身更新...");
+                    
                     // 设置系统属性传递配置
                     if (config.clientUpdate.githubRepo != null && !config.clientUpdate.githubRepo.isEmpty()) {
                         System.setProperty("mcpatch.selfupdate.github-repo", config.clientUpdate.githubRepo);
