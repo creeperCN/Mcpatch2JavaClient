@@ -324,20 +324,23 @@ public class Main {
      * 向上搜索，直到有一个父目录包含 .minecraft 目录
      */
     static Path searchDotMinecraft(Path basedir) {
-        try {
-            File d = basedir.toFile();
+        File d = basedir.toFile();
 
-            for (int i = 0; i < 7; i++) {
-                for (File f : d.listFiles()) {
+        for (int i = 0; i < 7; i++) {
+            if (d == null || !d.exists()) {
+                return null;
+            }
+
+            File[] files = d.listFiles();
+            if (files != null) {
+                for (File f : files) {
                     if (f.getName().equals(".minecraft")) {
                         return d.toPath();
                     }
                 }
-
-                d = d.getParentFile();
             }
-        } catch (NullPointerException e) {
-            return null;
+
+            d = d.getParentFile();
         }
 
         return null;

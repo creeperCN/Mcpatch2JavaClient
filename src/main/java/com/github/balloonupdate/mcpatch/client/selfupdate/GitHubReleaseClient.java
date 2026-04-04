@@ -122,6 +122,15 @@ public class GitHubReleaseClient {
                     // 保持原始URL，由下载器决定是否使用镜像
                     info.downloadUrl = asset.getString("browser_download_url");
                     info.fileSize = asset.optLong("size", 0);
+
+                    // 尝试从 digest 字段获取 SHA-256（GitHub API 提供）
+                    info.checksum = asset.optString("digest", null);
+                    if (info.checksum != null && !info.checksum.isEmpty()) {
+                        Log.debug("文件校验值(SHA-256): " + info.checksum);
+                    } else {
+                        Log.debug("GitHub Release 未提供 digest，下载后无法校验完整性");
+                    }
+
                     Log.debug("找到 JAR 文件: " + name + " (" + info.downloadUrl + ")");
                     break;
                 }

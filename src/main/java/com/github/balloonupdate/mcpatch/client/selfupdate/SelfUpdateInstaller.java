@@ -152,8 +152,9 @@ public class SelfUpdateInstaller {
         // 获取当前 JAR 所在目录作为白名单根目录
         Path currentJar = Env.getJarPath();
         if (currentJar == null) {
-            // 开发环境下无法获取 JAR 路径，允许任意路径
-            return true;
+            // 开发环境下无法获取 JAR 路径，仍校验文件名后缀
+            String fileName = path.getFileName().toString();
+            return fileName.endsWith(".jar.new");
         }
 
         Path allowedDir = currentJar.getParent();

@@ -119,6 +119,7 @@ public class AlistProtocol implements UpdatingServer {
             if ((!partial_file && (code < 200 || code >= 300)) || (partial_file && code != 206)) {
                 // 如果状态码不对，就考虑输出响应体内容，因为通常会包含一些服务端返回的错误信息，对排查问题很有帮助
                 String body = rsp.peekBody(300).string();
+                rsp.close();
 
                 String content = String.format("服务器(%d)返回了 %d 而不是206: %s (%s)\n%s", number, code, path, desc, body);
 
@@ -129,10 +130,12 @@ public class AlistProtocol implements UpdatingServer {
             long len = rsp.body().contentLength();
 
             if (len == -1) {
+                rsp.close();
                 throw new McpatchBusinessException(String.format("服务器(%d)没有返回 content-length 头：%s (%s)", number, path, desc));
             }
 
             if (range.len() > 0 && len != range.len()) {
+                rsp.close();
                 String text = String.format("服务器(%d)返回的 content-length 头 %d 不等于 %d: %s", number, len, range.len(), path);
 
                 throw new McpatchBusinessException(text);
@@ -212,21 +215,24 @@ public class AlistProtocol implements UpdatingServer {
 
         Response rsp = client.newCall(req).execute();
 
-        if (!rsp.isSuccessful()) {
-            // 如果状态码不对，就考虑输出响应体内容，因为通常会包含一些服务端返回的错误信息，对排查问题很有帮助
-            String b = rsp.peekBody(300).string();
+        try {
+            if (!rsp.isSuccessful()) {
+                String b = rsp.peekBody(300).string();
 
-            String content = String.format("服务器(%d)返回了 %d 而不是206: %s (%s)\n%s", number, rsp.code(), path, "请求原始下载链接", b);
+                String content = String.format("服务器(%d)返回了 %d 而不是206: %s (%s)\n%s", number, rsp.code(), path, "请求原始下载链接", b);
 
-            throw new McpatchBusinessException(content);
+                throw new McpatchBusinessException(content);
+            }
+
+            JSONObject json = new JSONObject(rsp.body());
+
+            String rawUrl = (String) json.query("/data/raw_url");
+
+            cache.put(path, rawUrl);
+
+            return rawUrl;
+        } finally {
+            rsp.close();
         }
-
-        JSONObject json = new JSONObject(rsp.body());
-
-        String rawUrl = (String) json.query("/data/raw_url");
-
-        cache.put(path, rawUrl);
-
-        return rawUrl;
     }
 }

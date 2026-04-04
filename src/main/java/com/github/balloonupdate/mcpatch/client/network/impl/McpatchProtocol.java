@@ -76,6 +76,14 @@ public class McpatchProtocol implements UpdatingServer {
         if (len == 0)
             return "";
 
+        // 防止恶意服务端返回超大值导致 OOM
+        if (len > 64 * 1024 * 1024) { // 最大64MB
+            throw new McpatchBusinessException("服务端返回数据过大: " + len + " 字节");
+        }
+        if (len > Integer.MAX_VALUE) {
+            throw new McpatchBusinessException("服务端返回数据超过数组上限: " + len + " 字节");
+        }
+
         byte[] buf = new byte[(int) len];
 
         try {
