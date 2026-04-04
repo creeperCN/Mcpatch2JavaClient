@@ -128,18 +128,9 @@ public class Main {
             }
 
             // ========== 客户端自身更新检查 ==========
-            // 调试信息
-            Log.debug("clientUpdate 配置: " + (config.clientUpdate != null ? "已加载" : "null"));
-            if (config.clientUpdate != null) {
-                Log.debug("  enabled: " + config.clientUpdate.enabled);
-                Log.debug("  githubRepo: " + config.clientUpdate.githubRepo);
-            }
-            
             // 检查配置是否启用自更新
             if (config.clientUpdate != null && config.clientUpdate.enabled) {
                 try {
-                    Log.info("正在检查客户端自身更新...");
-                    
                     // 设置系统属性传递配置
                     if (config.clientUpdate.githubRepo != null && !config.clientUpdate.githubRepo.isEmpty()) {
                         System.setProperty("mcpatch.selfupdate.github-repo", config.clientUpdate.githubRepo);
@@ -158,8 +149,6 @@ public class Main {
                     Log.error("客户端自更新检查失败: " + e.getMessage());
                     // 自更新失败不影响正常更新流程
                 }
-            } else {
-                Log.debug("客户端自更新未启用，跳过检查");
             }
 
             Work work = new Work();
