@@ -3,14 +3,15 @@ package com.github.balloonupdate.mcpatch.client.selfupdate;
 import com.github.balloonupdate.mcpatch.client.logging.Log;
 import com.github.balloonupdate.mcpatch.client.utils.Env;
 
+import java.io.BufferedReader;
+import java.io.StringReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 
 /**
  * 客户端更新安装器
- * 负责在程序启动时替换旧版本的 JAR 文件
+ * 支持跨平台（Windows/Linux/macOS/Android）
  */
 public class SelfUpdateInstaller {
     /**
@@ -30,21 +31,22 @@ public class SelfUpdateInstaller {
             }
 
             Path markerFile = SelfUpdateChecker.getUpdateMarkerFile();
+            Log.debug("读取标记文件: " + markerFile);
 
-            // 读取新版本路径
-            String newJarPathStr = Files.readString(markerFile).trim();
-            if (newJarPathStr.isEmpty()) {
-                Log.warn("更新标记文件为空，跳过更新");
-                Files.delete(markerFile);
+            // 解析标记文件
+            String markerContent = Files.readString(markerFile);
+            Path newJarPath = parseMarkerFile(markerContent);
+
+            if (newJarPath == null) {
+                Log.warn("标记文件格式错误，跳过更新");
+                Files.deleteIfExists(markerFile);
                 return false;
             }
 
-            Path newJar = Paths.get(newJarPathStr);
-
             // 检查新版本文件是否存在
-            if (!Files.exists(newJar)) {
-                Log.warn("新版本文件不存在: " + newJar);
-                Files.delete(markerFile);
+            if (!Files.exists(newJarPath)) {
+                Log.warn("新版本文件不存在: " + newJarPath);
+                Files.deleteIfExists(markerFile);
                 return false;
             }
 
@@ -52,24 +54,35 @@ public class SelfUpdateInstaller {
             Path currentJar = Env.getJarPath();
             if (currentJar == null) {
                 Log.warn("无法获取当前 JAR 路径，跳过更新");
-                Files.delete(markerFile);
+                Log.warn("请手动替换文件: " + newJarPath);
                 return false;
             }
 
             Log.info("正在安装客户端更新...");
             Log.debug("当前版本: " + currentJar);
-            Log.debug("新版本: " + newJar);
+            Log.debug("新版本: " + newJarPath);
+
+            // 检查是否是同一个文件（不同路径指向同一文件）
+            if (Files.isSameFile(newJarPath, currentJar)) {
+                Log.info("新版本与当前版本相同，跳过更新");
+                Files.deleteIfExists(markerFile);
+                return false;
+            }
 
             // 备份当前版本
             backupCurrentVersion(currentJar);
 
             // 替换 JAR 文件
-            Files.move(newJar, currentJar, StandardCopyOption.REPLACE_EXISTING);
+            Log.info("替换文件中...");
+            Files.move(newJarPath, currentJar, StandardCopyOption.REPLACE_EXISTING);
 
             // 删除标记文件
-            Files.delete(markerFile);
+            Files.deleteIfExists(markerFile);
 
+            Log.info("===========================================");
             Log.info("客户端更新安装完成!");
+            Log.info("新版本已安装: " + currentJar);
+            Log.info("===========================================");
 
             return true;
 
@@ -78,7 +91,9 @@ public class SelfUpdateInstaller {
 
             // 尝试回滚
             try {
-                rollbackUpdate();
+                if (rollbackUpdate()) {
+                    Log.info("已回滚到备份版本");
+                }
             } catch (Exception ex) {
                 Log.error("回滚失败: " + ex.getMessage());
             }
@@ -88,15 +103,44 @@ public class SelfUpdateInstaller {
     }
 
     /**
+     * 解析标记文件内容，获取新版本文件路径
+     */
+    private static Path parseMarkerFile(String content) {
+        try {
+            BufferedReader reader = new BufferedReader(new StringReader(content));
+            String line;
+            Path jarPath = null;
+
+            while ((line = reader.readLine()) != null) {
+                if (line.startsWith("path=")) {
+                    jarPath = Path.of(line.substring(5).trim());
+                }
+            }
+
+            // 如果没有 path= 格式，尝试直接作为路径解析（旧格式兼容）
+            if (jarPath == null && !content.trim().isEmpty()) {
+                String firstLine = content.split("\n")[0].trim();
+                if (!firstLine.isEmpty()) {
+                    jarPath = Path.of(firstLine);
+                }
+            }
+
+            return jarPath;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
      * 备份当前版本
      */
     private static void backupCurrentVersion(Path currentJar) throws Exception {
         Path backup = currentJar.resolveSibling(currentJar.getFileName() + BACKUP_SUFFIX);
 
-        if (Files.exists(backup)) {
-            Files.delete(backup);
-        }
+        // 删除旧备份
+        Files.deleteIfExists(backup);
 
+        // 创建新备份
         Files.copy(currentJar, backup);
 
         Log.debug("已备份当前版本到: " + backup);
@@ -157,6 +201,29 @@ public class SelfUpdateInstaller {
             }
         } catch (Exception e) {
             Log.warn("清理备份文件失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 清理所有更新相关文件（用于取消更新）
+     */
+    public static void cleanupUpdateFiles() {
+        try {
+            // 删除新版本文件
+            Path newJar = SelfUpdateChecker.getNewVersionFile();
+            if (Files.exists(newJar)) {
+                Files.delete(newJar);
+                Log.debug("已删除新版本文件");
+            }
+
+            // 删除标记文件
+            Path markerFile = SelfUpdateChecker.getUpdateMarkerFile();
+            if (Files.exists(markerFile)) {
+                Files.delete(markerFile);
+                Log.debug("已删除标记文件");
+            }
+        } catch (Exception e) {
+            Log.warn("清理更新文件失败: " + e.getMessage());
         }
     }
 }

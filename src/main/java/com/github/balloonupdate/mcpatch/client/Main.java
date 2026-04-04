@@ -6,6 +6,7 @@ import com.github.balloonupdate.mcpatch.client.logging.ConsoleHandler;
 import com.github.balloonupdate.mcpatch.client.logging.FileHandler;
 import com.github.balloonupdate.mcpatch.client.logging.Log;
 import com.github.balloonupdate.mcpatch.client.logging.LogLevel;
+import com.github.balloonupdate.mcpatch.client.selfupdate.SelfUpdateManager;
 import com.github.balloonupdate.mcpatch.client.ui.McPatchWindow;
 import com.github.balloonupdate.mcpatch.client.utils.BytesUtils;
 import com.github.balloonupdate.mcpatch.client.utils.DialogUtility;
@@ -126,13 +127,40 @@ public class Main {
                     window.show();
             }
 
-//            // 点击窗口的叉时停止更新任务
-//            if (window != null) {
-//                window.onWindowClosing = w -> {
-//                    if (workThread.isAlive())
-//                        workThread.interrupt();
-//                };
-//            }
+            // ========== 客户端自身更新检查 ==========
+            // 调试信息
+            Log.debug("clientUpdate 配置: " + (config.clientUpdate != null ? "已加载" : "null"));
+            if (config.clientUpdate != null) {
+                Log.debug("  enabled: " + config.clientUpdate.enabled);
+                Log.debug("  githubRepo: " + config.clientUpdate.githubRepo);
+            }
+            
+            // 检查配置是否启用自更新
+            if (config.clientUpdate != null && config.clientUpdate.enabled) {
+                try {
+                    Log.info("正在检查客户端自身更新...");
+                    
+                    // 设置系统属性传递配置
+                    if (config.clientUpdate.githubRepo != null && !config.clientUpdate.githubRepo.isEmpty()) {
+                        System.setProperty("mcpatch.selfupdate.github-repo", config.clientUpdate.githubRepo);
+                    }
+                    if (config.clientUpdate.mirror != null) {
+                        System.setProperty("mcpatch.selfupdate.mirror", config.clientUpdate.mirror);
+                    }
+                    if (config.clientUpdate.channel != null) {
+                        System.setProperty("mcpatch.selfupdate.channel", config.clientUpdate.channel);
+                    }
+                    
+                    // 执行自更新检查（显示进度窗口）
+                    SelfUpdateManager.performSelfUpdate(graphicsMode);
+                    
+                } catch (Exception e) {
+                    Log.error("客户端自更新检查失败: " + e.getMessage());
+                    // 自更新失败不影响正常更新流程
+                }
+            } else {
+                Log.debug("客户端自更新未启用，跳过检查");
+            }
 
             Work work = new Work();
             work.window = window;

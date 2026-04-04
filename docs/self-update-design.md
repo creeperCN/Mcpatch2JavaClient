@@ -2,196 +2,160 @@
 
 ## 方案概述
 
-由于客户端作为 Java Agent 运行，JAR 文件在运行时被锁定无法直接替换，因此采用 **"下载-标记-替换"** 的延迟更新策略。
+客户端通过 GitHub Release API 自动检查并更新自身版本，支持国内镜像加速。
 
 ---
 
 ## 架构设计
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    启动流程                              │
-├─────────────────────────────────────────────────────────┤
-│  1. 启动 Minecraft                                      │
-│         ↓                                               │
-│  2. Java Agent (update.jar) 加载                        │
-│         ↓                                               │
-│  3. 检查客户端自身更新 ←─────────────────┐              │
-│         ↓                                │               │
-│  4. 如有更新: 下载新版本到临时位置        │               │
-│         ↓                                │               │
-│  5. 检查游戏文件更新                     │               │
-│         ↓                                │               │
-│  6. 启动 Minecraft                       │               │
-│         ↓                                │               │
-│  7. 程序退出时/下次启动: 替换旧版本 ──────┘               │
-└─────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                         启动流程                                      │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│   1. 启动 Minecraft                                                  │
+│          │                                                          │
+│          ▼                                                          │
+│   2. Java Agent (update.jar) 加载                                    │
+│          │                                                          │
+│          ▼                                                          │
+│   3. 检查标记文件（有待安装的更新？）                                   │
+│          ├── 有 → 安装更新 → 继续启动                                 │
+│          └── 无 → 继续                                               │
+│          │                                                          │
+│          ▼                                                          │
+│   4. 请求 GitHub Release API                                         │
+│          │                                                          │
+│          ▼                                                          │
+│   5. 比较版本号                                                       │
+│          ├── 有新版本 → 下载 → 创建标记文件                            │
+│          └── 无新版本 → 继续                                         │
+│          │                                                          │
+│          ▼                                                          │
+│   6. 检查游戏文件更新 → 启动 Minecraft                                │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 实现方案
+## 核心组件
 
-### 1. 版本检测
-
-在配置文件 `mcpatch.yml` 中添加客户端更新配置：
-
-```yaml
-# 客户端自身更新配置
-client-update:
-  # 客户端版本检查 URL
-  version-url: "https://your-server.com/mcpatch/client-version.json"
-  # 是否启用自动更新
-  enabled: true
-  # 更新渠道: stable/beta/alpha
-  channel: stable
+```
+src/main/java/com/github/balloonupdate/mcpatch/client/selfupdate/
+├── SelfUpdateManager.java      # 更新管理器（统一调度）
+├── SelfUpdateChecker.java      # 版本检查器
+├── SelfUpdateDownloader.java   # 下载器
+├── SelfUpdateInstaller.java    # 安装器
+├── ClientVersionInfo.java      # 版本信息模型
+├── GitHubReleaseClient.java    # GitHub Release API 客户端
+└── GitHubMirror.java           # GitHub 镜像加速器
 ```
 
-### 2. 版本信息文件 (服务端)
+---
 
-`client-version.json`:
+## GitHub Release API
+
+### 获取最新版本
+
+```bash
+GET https://api.github.com/repos/{owner}/{repo}/releases/latest
+```
+
+### 响应示例
+
 ```json
 {
-  "latest_version": "0.0.12",
-  "min_version": "0.0.10",
-  "download_url": "https://your-server.com/mcpatch/Mcpatch-0.0.12.jar",
-  "checksum": "abc123def456...",
-  "changelog": "修复了若干bug",
-  "release_date": "2025-04-04",
-  "force_update": false
-}
-```
-
-### 3. 核心代码结构
-
-```
-src/main/java/com/github/balloonupdate/mcpatch/client/
-├── selfupdate/
-│   ├── SelfUpdateChecker.java    # 检查更新
-│   ├── SelfUpdateDownloader.java # 下载新版本
-│   ├── SelfUpdateInstaller.java  # 安装更新
-│   └── ClientVersionInfo.java    # 版本信息
-```
-
----
-
-## 详细设计
-
-### 阶段 1: 启动时检查
-
-```java
-// Main.java 中的修改
-public static void premain(String agentArgs, Instrumentation ins) throws Throwable {
-    // 1. 先检查客户端自身更新
-    if (checkSelfUpdate()) {
-        downloadSelfUpdate();
+  "tag_name": "v0.0.12",
+  "name": "Mcpatch v0.0.12",
+  "body": "- 修复空文件下载崩溃问题\n- 新增镜像加速功能",
+  "published_at": "2025-04-04T12:00:00Z",
+  "prerelease": false,
+  "assets": [
+    {
+      "name": "Mcpatch-0.0.12.jar",
+      "browser_download_url": "https://github.com/xxx/releases/download/v0.0.12/Mcpatch-0.0.12.jar",
+      "size": 8000000
     }
-
-    // 2. 检查是否有待安装的更新
-    installPendingUpdate();
-
-    // 3. 继续正常的游戏文件更新流程
-    // ...
-}
-```
-
-### 阶段 2: 下载新版本
-
-```java
-public class SelfUpdateDownloader {
-    /**
-     * 下载新版本到临时文件
-     * Windows: %TEMP%\mcpatch-update.jar
-     * Linux/Mac: /tmp/mcpatch-update.jar
-     */
-    public static Path downloadNewVersion(String downloadUrl, String expectedChecksum) {
-        Path tempFile = getUpdateTempFile();
-
-        // 下载文件
-        downloadFile(downloadUrl, tempFile);
-
-        // 校验 checksum
-        if (!verifyChecksum(tempFile, expectedChecksum)) {
-            throw new RuntimeException("Checksum verification failed");
-        }
-
-        // 创建标记文件，表示有待安装的更新
-        createUpdateMarker(tempFile);
-
-        return tempFile;
-    }
-}
-```
-
-### 阶段 3: 延迟替换
-
-```java
-public class SelfUpdateInstaller {
-    /**
-     * 安装待处理的更新
-     * 这个方法在程序启动最开始执行
-     */
-    public static boolean installPendingUpdate() {
-        Path markerFile = getUpdateMarkerFile();
-
-        if (!Files.exists(markerFile)) {
-            return false; // 没有待安装的更新
-        }
-
-        // 读取标记文件获取新版本路径
-        String newVersionPath = Files.readString(markerFile);
-        Path newJar = Paths.get(newVersionPath);
-        Path currentJar = Env.getJarPath();
-
-        if (!Files.exists(newJar)) {
-            // 新版本文件不存在，清理标记
-            Files.delete(markerFile);
-            return false;
-        }
-
-        // 替换 JAR 文件
-        backupCurrentVersion(currentJar);
-        Files.move(newJar, currentJar, StandardCopyOption.REPLACE_EXISTING);
-        Files.delete(markerFile);
-
-        Log.info("客户端已更新到最新版本");
-        return true;
-    }
-
-    /**
-     * 备份当前版本，以防回滚
-     */
-    private static void backupCurrentVersion(Path currentJar) {
-        Path backup = currentJar.resolveSibling(currentJar.getFileName() + ".backup");
-        Files.copy(currentJar, backup, StandardCopyOption.REPLACE_EXISTING);
-    }
+  ]
 }
 ```
 
 ---
 
-## 更新流程图
+## 镜像加速
+
+### 支持的镜像站
+
+| 镜像站 | 说明 |
+|--------|------|
+| `https://gh-proxy.org/` | 主站 |
+| `https://hk.gh-proxy.org/` | 香港节点 |
+| `https://cdn.gh-proxy.org/` | CDN 加速 |
+| `https://edgeone.gh-proxy.org/` | EdgeOne 加速 |
+
+### 镜像选择流程
+
+1. Ping 测试所有镜像站延迟
+2. 选择延迟最低的镜像站
+3. 缓存最优镜像 10 分钟
+4. 如果所有镜像不可达，使用原始链接
+
+---
+
+## 配置示例
+
+```yaml
+client-update:
+  # 是否启用客户端自动更新
+  enabled: true
+
+  # GitHub 仓库配置
+  github-repo: "BalloonUpdate/Mcpatch2JavaClient"
+
+  # 镜像加速（国内环境推荐开启）
+  mirror: auto
+
+  # 更新渠道
+  channel: stable
+
+  # 是否自动安装更新
+  auto-install: true
+
+  # 是否备份当前版本
+  backup-enabled: true
+
+  # 更新失败时是否自动回滚
+  rollback-on-failure: true
+```
+
+---
+
+## 更新流程
 
 ```
-┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│   程序启动   │────→│ 检查标记文件 │────→│ 有待更新?    │
-└──────────────┘     └──────────────┘     └──────┬───────┘
-                                                  │
-                    ┌─────────────────────────────┴─────┐
-                    │ Yes                               │ No
-                    ↓                                   ↓
-            ┌──────────────┐                    ┌──────────────┐
-            │ 替换 JAR 文件│                    │ 正常启动流程 │
-            └──────┬───────┘                    └──────────────┘
-                    │
-                    ↓
-            ┌──────────────┐
-            │ 检查新版本   │
-            └──────┬───────┘
-                    │
-                    ├── 有新版本 ──→ 下载到临时位置 ──→ 创建标记文件 ──→ 继续启动
-                    │
-                    └── 无新版本 ──→ 继续正常启动流程
+时间线：
+┌─────────────────────────────────────────────────────────────────┐
+│                                                                 │
+│   第 N 次启动                                                    │
+│   1. 检查标记文件 → 不存在                                       │
+│   2. 请求 GitHub Release API                                    │
+│   3. 发现新版本 0.0.12                                          │
+│   4. 下载到临时目录                                              │
+│   5. 创建标记文件                                                │
+│   6. 继续正常运行                                                │
+│                                                                 │
+│   第 N 次退出                                                    │
+│   JVM 退出，JAR 文件解锁                                         │
+│                                                                 │
+│   第 N+1 次启动                                                  │
+│   1. 检查标记文件 → 存在！                                       │
+│   2. 备份当前版本                                                │
+│   3. 替换 JAR 文件                                               │
+│   4. 删除标记文件                                                │
+│   5. 继续启动（已是新版本）                                       │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -199,56 +163,25 @@ public class SelfUpdateInstaller {
 ## 文件结构
 
 ```
-.minecraft/versions/xxx/
-├── update.jar              # 当前运行的客户端
-├── update.jar.backup       # 备份文件（用于回滚）
-├── update.jar.new         # 待安装的新版本（Windows）
-└── .mcpatch-temp/
-    └── self-update.marker # 更新标记文件
+临时目录（系统 temp）：
+├── .mcpatch-selfupdate-marker    # 标记文件
+└── mcpatch-update-new.jar        # 新版本 JAR
+
+游戏目录：
+├── update.jar                    # 当前版本
+└── update.jar.backup            # 备份文件
 ```
 
 ---
 
-## 配置示例
-
-```yaml
-# mcpatch.yml 完整配置示例
-
-# 游戏文件更新服务器
-urls:
-  - "https://update.example.com/mcpatch/"
-
-# 客户端自身更新配置
-client-update:
-  enabled: true
-  version-url: "https://update.example.com/client-version.json"
-  channel: stable
-  auto-install: true      # 自动安装更新
-  backup-enabled: true    # 是否备份旧版本
-  rollback-on-failure: true # 更新失败时回滚
-
-# 其他配置...
-version-file-path: "version-label.txt"
-window-title: "游戏更新器"
-```
-
----
-
-## 优势
+## 功能特性
 
 | 特性 | 说明 |
 |------|------|
-| ✅ 非阻塞更新 | 不影响当前游戏运行 |
-| ✅ 自动回滚 | 更新失败可恢复 |
-| ✅ 校验机制 | Checksum 防止损坏 |
-| ✅ 跨平台 | Windows/Linux/macOS 兼容 |
-| ✅ 可配置 | 支持多渠道更新 |
-
----
-
-## 注意事项
-
-1. **首次运行**: 需要手动部署初始版本
-2. **权限问题**: 确保有写入 JAR 目录的权限
-3. **网络超时**: 需要处理网络异常情况
-4. **版本回退**: 保留备份文件支持回滚
+| ✅ GitHub Release | 免费托管，CDN 加速 |
+| ✅ 镜像加速 | 国内网络优化 |
+| ✅ 自动选择 | Ping 测试选择最快镜像 |
+| ✅ 安全校验 | SHA-256 文件校验 |
+| ✅ 自动备份 | 更新前备份当前版本 |
+| ✅ 失败回滚 | 更新失败自动恢复 |
+| ✅ 延迟安装 | 避免 JAR 文件锁定问题 |

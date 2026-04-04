@@ -126,9 +126,17 @@ public class AppConfig {
         public boolean enabled;
 
         /**
-         * 版本检查 URL
+         * GitHub 仓库（格式: owner/repo）
          */
-        public String versionUrl;
+        public String githubRepo;
+
+        /**
+         * GitHub 镜像加速模式
+         * auto: 自动检测（推荐）
+         * true: 强制启用镜像
+         * false: 禁用镜像
+         */
+        public String mirror;
 
         /**
          * 更新渠道: stable/beta/alpha
@@ -214,7 +222,8 @@ public class AppConfig {
             Map<String, Object> cuMap = (Map<String, Object>) clientUpdateObj;
 
             config.enabled = getBoolean(cuMap, "enabled", null, false);
-            config.versionUrl = getString(cuMap, "version-url", null, "");
+            config.githubRepo = getString(cuMap, "github-repo", null, "");
+            config.mirror = getString(cuMap, "mirror", null, "auto");
             config.channel = getString(cuMap, "channel", null, "stable");
             config.autoInstall = getBoolean(cuMap, "auto-install", null, true);
             config.backupEnabled = getBoolean(cuMap, "backup-enabled", null, true);

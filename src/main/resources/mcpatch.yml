@@ -96,16 +96,25 @@ client-update:
   # 是否启用客户端自动更新
   # true: 启用，客户端启动时会检查自身是否有更新
   # false: 禁用，需要手动更新客户端
-  enabled: false
+  enabled: true
 
-  # 版本检查 URL（服务端需要提供版本信息 JSON 文件）
-  # 格式示例: https://your-server.com/mcpatch/client-version.json
-  version-url: ""
+  # GitHub 仓库配置
+  # 格式: owner/repo
+  # 从 GitHub Release 获取最新版本
+  github-repo: "BalloonUpdate/Mcpatch2JavaClient"
+
+  # GitHub 镜像加速（国内环境推荐开启）
+  # 使用镜像站加速访问 GitHub，解决国内网络问题
+  # 启用后会自动选择延迟最低的镜像站
+  # mirror: auto    - 自动检测（推荐）
+  # mirror: true    - 强制启用镜像
+  # mirror: false   - 禁用镜像，直连 GitHub
+  mirror: auto
 
   # 更新渠道
-  # stable: 稳定版
-  # beta: 测试版
-  # alpha: 开发版
+  # stable: 稳定版（正式发布）
+  # beta: 测试版（包含预发布版本）
+  # alpha: 开发版（包含所有版本）
   channel: stable
 
   # 是否自动安装更新
