@@ -231,26 +231,4 @@ public class GitHubMirror {
     public static int getReadTimeout() {
         return READ_TIMEOUT;
     }
-
-    /**
-     * 测试并打印所有镜像状态
-     */
-    public static void testAllMirrors() {
-        Log.info("===== GitHub 镜像站列表 =====");
-        
-        Log.info("API 镜像站:");
-        for (int i = 0; i < API_MIRROR_URLS.length; i++) {
-            String status = (i == currentApiMirrorIndex) ? " [当前]" : "";
-            Log.info("  " + (i + 1) + ". " + API_MIRROR_URLS[i] + status);
-        }
-        
-        Log.info("下载镜像站:");
-        for (int i = 0; i < DOWNLOAD_MIRROR_URLS.length; i++) {
-            String status = (i == currentDownloadMirrorIndex) ? " [当前]" : "";
-            Log.info("  " + (i + 1) + ". " + DOWNLOAD_MIRROR_URLS[i] + status);
-        }
-        
-        Log.info("策略: 超时 " + (CONNECT_TIMEOUT / 1000) + " 秒自动切换下一个");
-        Log.info("==============================");
-    }
 }
