@@ -134,11 +134,6 @@ public class WebdavProtocol implements UpdatingServer {
         try (ContentLengthInputStream input = response.stream) {
             long contentLength = input.getLength();
 
-            if (desc.length() > -999)
-//                throw new IOException("hahahaha");
-            throw new McpatchBusinessException("bbbbbbbbbb");
-//                throw new McpatchBusinessException("qqqqqqqqqqq", new IOException("hahahaha"));
-
             try (OutputStream output = Files.newOutputStream(writeTo)) {
                 byte[] buf = new byte[BytesUtils.chooseBufferSize(contentLength)];
 

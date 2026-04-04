@@ -436,6 +436,10 @@ public class Work {
 
                     // 空文件不需要下载
                     if (f.length == 0) {
+                        // 如果临时文件已存在（上次更新中断），先删除再创建
+                        if (Files.exists(f.tempPath)) {
+                            Files.delete(f.tempPath);
+                        }
                         Files.createFile(f.tempPath);
                         continue;
                     }
