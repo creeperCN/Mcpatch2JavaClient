@@ -89,6 +89,8 @@ public class HttpProtocol implements UpdatingServer {
             return rsp.body().string();
         } catch (IOException e) {
             throw new McpatchBusinessException("无法解码响应体", e);
+        } finally {
+            rsp.close();
         }
     }
 

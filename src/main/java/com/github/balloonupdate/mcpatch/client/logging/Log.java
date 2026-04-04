@@ -1,5 +1,6 @@
 package com.github.balloonupdate.mcpatch.client.logging;
 
+import java.util.Collections;
 import java.util.ArrayList;
 
 /**
@@ -9,12 +10,12 @@ public class Log {
     /**
      * 所有注册的日志记录器
      */
-    static ArrayList<LogHandler> handlers = new ArrayList<>();
+    static final ArrayList<LogHandler> handlers = new ArrayList<>();
 
     /**
      * 日志的 缩进文字 会显示在日志头的后面，日志文本的前面
      */
-    static ArrayList<String> indents = new ArrayList<>();
+    static final ArrayList<String> indents = new ArrayList<>();
 
     /**
      * 应用程序标识，当开启时，在每条日志的最前面应该增加 Mcpatch 的字样，用来区分这是 mcpatch 输出的日志
@@ -55,14 +56,25 @@ public class Log {
      * @param content 日志的内容
      */
     public static void message(LogLevel level, String content) {
-        for (LogHandler handler : handlers) {
+        ArrayList<LogHandler> snapshot;
+        ArrayList<String> indentSnapshot;
+
+        // 创建快照避免 ConcurrentModificationException
+        synchronized (handlers) {
+            snapshot = new ArrayList<>(handlers);
+        }
+        synchronized (indents) {
+            indentSnapshot = new ArrayList<>(indents);
+        }
+
+        for (LogHandler handler : snapshot) {
             if(level.ordinal() >= handler.getFilterLevel().ordinal()) {
                 Message msg = new Message();
 
                 msg.time = System.currentTimeMillis();
                 msg.level = level;
                 msg.content = content;
-                msg.indents = indents;
+                msg.indents = indentSnapshot;
                 msg.appIdentifier = appIdentifierEnabled;
 
                 handler.onMessage(msg);
@@ -98,17 +110,23 @@ public class Log {
     public static void addHandler(LogHandler handler) {
         handler.onStart();
 
-        handlers.add(handler);
+        synchronized (handlers) {
+            handlers.add(handler);
+        }
     }
 
     /**
      * 停止日志记录器
      */
     public static void stop() {
-        for (LogHandler handler : handlers) {
-            handler.onStop();
+        ArrayList<LogHandler> snapshot;
+        synchronized (handlers) {
+            snapshot = new ArrayList<>(handlers);
+            handlers.clear();
         }
 
-        handlers.clear();
+        for (LogHandler handler : snapshot) {
+            handler.onStop();
+        }
     }
 }
