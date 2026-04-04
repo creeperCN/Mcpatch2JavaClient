@@ -16,6 +16,7 @@ public class GitHubMirror {
      * GitHub API 镜像站列表（用于 API 请求）
      */
     private static final String[] API_MIRROR_URLS = {
+        "https://ghfile.geekertao.top/",
         "https://gh.bugdey.us.kg/",
         "https://github.dpik.top/"
     };
@@ -24,6 +25,7 @@ public class GitHubMirror {
      * GitHub Release 下载镜像站列表（用于文件下载）
      */
     private static final String[] DOWNLOAD_MIRROR_URLS = {
+        "https://ghfile.geekertao.top/",
         "https://hk.gh-proxy.org/",
         "https://gh-proxy.org/",
         "https://cdn.gh-proxy.org/",
