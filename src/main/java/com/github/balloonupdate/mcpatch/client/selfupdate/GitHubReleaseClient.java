@@ -119,9 +119,8 @@ public class GitHubReleaseClient {
 
                 // 查找 .jar 文件
                 if (name.endsWith(".jar") && !name.contains("-sources") && !name.contains("-javadoc")) {
-                    String originalUrl = asset.getString("browser_download_url");
-                    // 下载使用下载镜像站
-                    info.downloadUrl = useMirror ? GitHubMirror.convertDownloadUrl(originalUrl) : originalUrl;
+                    // 保持原始URL，由下载器决定是否使用镜像
+                    info.downloadUrl = asset.getString("browser_download_url");
                     info.fileSize = asset.optLong("size", 0);
                     Log.debug("找到 JAR 文件: " + name + " (" + info.downloadUrl + ")");
                     break;
