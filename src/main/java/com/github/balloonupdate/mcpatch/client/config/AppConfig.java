@@ -116,6 +116,46 @@ public class AppConfig {
      */
     public boolean testMode;
 
+    /**
+     * 客户端自身更新配置
+     */
+    public static class ClientUpdateConfig {
+        /**
+         * 是否启用客户端自动更新
+         */
+        public boolean enabled;
+
+        /**
+         * 版本检查 URL
+         */
+        public String versionUrl;
+
+        /**
+         * 更新渠道: stable/beta/alpha
+         */
+        public String channel;
+
+        /**
+         * 是否自动安装更新
+         */
+        public boolean autoInstall;
+
+        /**
+         * 是否启用备份
+         */
+        public boolean backupEnabled;
+
+        /**
+         * 更新失败时是否回滚
+         */
+        public boolean rollbackOnFailure;
+    }
+
+    /**
+     * 客户端自身更新配置
+     */
+    public ClientUpdateConfig clientUpdate;
+
 
     public AppConfig(Map<String, Object> map) {
         List<String> urls = getList(map, "urls", null, new ArrayList<>());
@@ -156,6 +196,32 @@ public class AppConfig {
         this.ignoreSSLCertificate = ignoreSSLCertificate;
         this.ignoreHttpContentLength = ignoreHttpContentLength;
         this.testMode = testMode;
+
+        // 解析客户端更新配置
+        this.clientUpdate = parseClientUpdateConfig(map);
+    }
+
+    /**
+     * 解析客户端自身更新配置
+     */
+    @SuppressWarnings("unchecked")
+    private ClientUpdateConfig parseClientUpdateConfig(Map<String, Object> map) {
+        ClientUpdateConfig config = new ClientUpdateConfig();
+
+        Object clientUpdateObj = map.get("client-update");
+
+        if (clientUpdateObj instanceof Map) {
+            Map<String, Object> cuMap = (Map<String, Object>) clientUpdateObj;
+
+            config.enabled = getBoolean(cuMap, "enabled", null, false);
+            config.versionUrl = getString(cuMap, "version-url", null, "");
+            config.channel = getString(cuMap, "channel", null, "stable");
+            config.autoInstall = getBoolean(cuMap, "auto-install", null, true);
+            config.backupEnabled = getBoolean(cuMap, "backup-enabled", null, true);
+            config.rollbackOnFailure = getBoolean(cuMap, "rollback-on-failure", null, true);
+        }
+
+        return config;
     }
 
     @SuppressWarnings("unchecked")

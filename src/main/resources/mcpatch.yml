@@ -89,3 +89,36 @@ ignore-http-content-length: false
 # 开启后每次都会重头更新，且不会优化任何文件下载
 # 仅用于测试用途，平时正常使用勿开
 test-mode: false
+
+# ==================== 客户端自身更新配置 ====================
+# 客户端可以自动检查并更新自身，无需用户手动下载新版本
+client-update:
+  # 是否启用客户端自动更新
+  # true: 启用，客户端启动时会检查自身是否有更新
+  # false: 禁用，需要手动更新客户端
+  enabled: false
+
+  # 版本检查 URL（服务端需要提供版本信息 JSON 文件）
+  # 格式示例: https://your-server.com/mcpatch/client-version.json
+  version-url: ""
+
+  # 更新渠道
+  # stable: 稳定版
+  # beta: 测试版
+  # alpha: 开发版
+  channel: stable
+
+  # 是否自动安装更新
+  # true: 下载完成后自动安装（下次启动时生效）
+  # false: 仅下载，需手动安装
+  auto-install: true
+
+  # 是否备份当前版本
+  # true: 更新前备份当前版本，失败时可回滚
+  # false: 不备份
+  backup-enabled: true
+
+  # 更新失败时是否自动回滚
+  # true: 失败时自动恢复到备份版本
+  # false: 失败后需要手动处理
+  rollback-on-failure: true
