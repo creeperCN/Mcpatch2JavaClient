@@ -105,6 +105,7 @@ public class SelfUpdateInstaller {
 
     /**
      * 解析标记文件内容，获取新版本文件路径
+     * 包含路径安全校验，防止路径遍历攻击
      */
     private static Path parseMarkerFile(String content) {
         try {
@@ -114,7 +115,13 @@ public class SelfUpdateInstaller {
 
             while ((line = reader.readLine()) != null) {
                 if (line.startsWith("path=")) {
-                    jarPath = Paths.get(line.substring(5).trim());
+                    Path parsed = Paths.get(line.substring(5).trim()).normalize().toAbsolutePath();
+                    if (isSafeUpdatePath(parsed)) {
+                        jarPath = parsed;
+                    } else {
+                        Log.warn("标记文件中的路径不安全，已拒绝: " + parsed);
+                        return null;
+                    }
                 }
             }
 
@@ -122,7 +129,13 @@ public class SelfUpdateInstaller {
             if (jarPath == null && !content.trim().isEmpty()) {
                 String firstLine = content.split("\n")[0].trim();
                 if (!firstLine.isEmpty()) {
-                    jarPath = Paths.get(firstLine);
+                    Path parsed = Paths.get(firstLine).normalize().toAbsolutePath();
+                    if (isSafeUpdatePath(parsed)) {
+                        jarPath = parsed;
+                    } else {
+                        Log.warn("标记文件中的路径不安全，已拒绝: " + parsed);
+                        return null;
+                    }
                 }
             }
 
@@ -130,6 +143,35 @@ public class SelfUpdateInstaller {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    /**
+     * 校验路径是否在允许的更新目录内，防止路径遍历攻击
+     */
+    private static boolean isSafeUpdatePath(Path path) {
+        // 获取当前 JAR 所在目录作为白名单根目录
+        Path currentJar = Env.getJarPath();
+        if (currentJar == null) {
+            // 开发环境下无法获取 JAR 路径，允许任意路径
+            return true;
+        }
+
+        Path allowedDir = currentJar.getParent();
+        if (allowedDir == null) {
+            return false;
+        }
+        allowedDir = allowedDir.normalize().toAbsolutePath();
+
+        Path normalizedPath = path.normalize().toAbsolutePath();
+
+        // 路径必须在允许的目录内
+        if (!normalizedPath.startsWith(allowedDir)) {
+            return false;
+        }
+
+        // 文件名必须以 .jar.new 结尾（更新文件特征）
+        String fileName = normalizedPath.getFileName().toString();
+        return fileName.endsWith(".jar.new");
     }
 
     /**

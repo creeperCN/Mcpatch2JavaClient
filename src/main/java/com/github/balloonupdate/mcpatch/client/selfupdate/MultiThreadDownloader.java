@@ -13,8 +13,11 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -33,9 +36,20 @@ public class MultiThreadDownloader {
     private static final long MIN_CHUNK_SIZE = 1024 * 1024;
     
     /**
-     * 下载线程池
+     * 下载线程池（有界，最多8个线程，daemon线程不阻止JVM退出）
      */
-    private static final ExecutorService executor = Executors.newCachedThreadPool();
+    private static final ExecutorService executor = new ThreadPoolExecutor(
+        DEFAULT_THREAD_COUNT, 8, 60L, TimeUnit.SECONDS,
+        new LinkedBlockingQueue<Runnable>(16),
+        new ThreadFactory() {
+            public Thread newThread(Runnable r) {
+                Thread t = new Thread(r, "mcpatch-downloader");
+                t.setDaemon(true);
+                return t;
+            }
+        },
+        new ThreadPoolExecutor.DiscardPolicy()
+    );
     
     /**
      * 进度回调接口

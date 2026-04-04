@@ -201,29 +201,36 @@ public class GitHubReleaseClient {
      * 直接请求（不使用镜像）
      */
     private static String httpGetDirect(String urlString) throws Exception {
-        URL url = new URL(urlString);
-        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        HttpURLConnection conn = null;
+        try {
+            URL url = new URL(urlString);
+            conn = (HttpURLConnection) url.openConnection();
 
-        conn.setRequestMethod("GET");
-        conn.setConnectTimeout(15000);
-        conn.setReadTimeout(30000);
-        conn.setRequestProperty("Accept", "application/vnd.github.v3+json");
-        conn.setRequestProperty("User-Agent", "Mcpatch2JavaClient-Updater");
+            conn.setRequestMethod("GET");
+            conn.setConnectTimeout(15000);
+            conn.setReadTimeout(30000);
+            conn.setRequestProperty("Accept", "application/vnd.github.v3+json");
+            conn.setRequestProperty("User-Agent", "Mcpatch2JavaClient-Updater");
 
-        int responseCode = conn.getResponseCode();
-        if (responseCode != 200) {
-            throw new RuntimeException("HTTP 请求失败: " + responseCode);
-        }
+            int responseCode = conn.getResponseCode();
+            if (responseCode != 200) {
+                throw new RuntimeException("HTTP 请求失败: " + responseCode);
+            }
 
-        StringBuilder response = new StringBuilder();
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream()))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                response.append(line).append("\n");
+            StringBuilder response = new StringBuilder();
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    response.append(line).append("\n");
+                }
+            }
+
+            return response.toString();
+        } finally {
+            if (conn != null) {
+                conn.disconnect();
             }
         }
-
-        return response.toString();
     }
 
     /**
