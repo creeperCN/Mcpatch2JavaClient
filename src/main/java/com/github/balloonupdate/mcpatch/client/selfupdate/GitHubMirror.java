@@ -24,8 +24,8 @@ public class GitHubMirror {
      * GitHub Release 下载镜像站列表（用于文件下载）
      */
     private static final String[] DOWNLOAD_MIRROR_URLS = {
-        "https://gh-proxy.org/",
         "https://hk.gh-proxy.org/",
+        "https://gh-proxy.org/",
         "https://cdn.gh-proxy.org/",
         "https://edgeone.gh-proxy.org/"
     };
