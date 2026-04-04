@@ -25,7 +25,7 @@ public class MultiThreadDownloader {
     /**
      * 默认线程数
      */
-    private static final int DEFAULT_THREAD_COUNT = 8;
+    private static final int DEFAULT_THREAD_COUNT = 6;
     
     /**
      * 最小分片大小（1MB以下不分片）

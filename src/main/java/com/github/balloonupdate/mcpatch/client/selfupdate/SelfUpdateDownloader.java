@@ -69,7 +69,7 @@ public class SelfUpdateDownloader {
                 
                 // 使用多线程下载
                 final String downloadUrl = currentUrl;
-                MultiThreadDownloader.download(downloadUrl, targetFile, 8, new MultiThreadDownloader.ProgressCallback() {
+                MultiThreadDownloader.download(downloadUrl, targetFile, 6, new MultiThreadDownloader.ProgressCallback() {
                     @Override
                     public void onProgress(long downloaded, long total, int percent) {
                         if (total > 0) {
