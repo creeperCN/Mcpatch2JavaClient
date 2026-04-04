@@ -106,7 +106,7 @@ public class Log {
      */
     public static void stop() {
         for (LogHandler handler : handlers) {
-            handler.onStart();
+            handler.onStop();
         }
 
         handlers.clear();

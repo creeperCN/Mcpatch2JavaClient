@@ -13,6 +13,8 @@ import com.github.balloonupdate.mcpatch.client.utils.DialogUtility;
 import com.github.balloonupdate.mcpatch.client.utils.Env;
 import com.github.kasuminova.GUI.SetupSwing;
 import org.yaml.snakeyaml.Yaml;
+import org.yaml.snakeyaml.LoaderOptions;
+import org.yaml.snakeyaml.constructor.Constructor;
 import org.yaml.snakeyaml.parser.ParserException;
 
 import java.awt.*;
@@ -348,7 +350,7 @@ public class Main {
 
             Map<String, Object> result;
 
-            Yaml yaml = new Yaml();
+            Yaml yaml = new Yaml(new Constructor(new LoaderOptions()));
 
             // 如果外部配置文件存在，优先使用
             if (Files.exists(external)) {

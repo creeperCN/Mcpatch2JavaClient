@@ -4,6 +4,7 @@ import com.github.balloonupdate.mcpatch.client.config.AppConfig;
 import com.github.balloonupdate.mcpatch.client.data.Range;
 import com.github.balloonupdate.mcpatch.client.exceptions.McpatchBusinessException;
 import com.github.balloonupdate.mcpatch.client.network.UpdatingServer;
+import com.github.balloonupdate.mcpatch.client.logging.Log;
 import com.github.balloonupdate.mcpatch.client.utils.BytesUtils;
 import com.github.balloonupdate.mcpatch.client.utils.ReduceReportingFrequency;
 import com.github.balloonupdate.mcpatch.client.utils.RuntimeAssert;
@@ -67,6 +68,7 @@ public class HttpProtocol implements UpdatingServer {
 
         // 忽略证书
         if (config.ignoreSSLCertificate) {
+            Log.warn("[SECURITY] ignore-ssl-cert 已启用，SSL证书验证将被完全跳过。此选项仅应用于开发/测试环境，生产环境请关闭此选项（默认值为false）");
             IgnoreSSLCert ignore = new IgnoreSSLCert();
 
             builder.sslSocketFactory(ignore.context.getSocketFactory(), ignore.trustManager);
@@ -246,9 +248,13 @@ public class HttpProtocol implements UpdatingServer {
                 context = SSLContext.getInstance("TLS");
 
                 trustManager = new X509TrustManager() {
-                    public void checkClientTrusted(X509Certificate[] paramArrayOfX509Certificate, String paramString) { }
+                    public void checkClientTrusted(X509Certificate[] paramArrayOfX509Certificate, String paramString) {
+                        Log.warn("[SECURITY] SSL客户端证书验证已被跳过，此模式仅应用于开发/测试环境");
+                    }
 
-                    public void checkServerTrusted(X509Certificate[] paramArrayOfX509Certificate, String paramString) { }
+                    public void checkServerTrusted(X509Certificate[] paramArrayOfX509Certificate, String paramString) {
+                        Log.warn("[SECURITY] SSL服务端证书验证已被跳过，所有HTTPS连接不验证服务端证书，存在中间人攻击风险");
+                    }
 
                     public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
                 };

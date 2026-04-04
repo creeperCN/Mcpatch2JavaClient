@@ -63,12 +63,12 @@ public class WebdavProtocol implements UpdatingServer {
     /**
      * 用户名
      */
-    String username;
+    private String username;
 
     /**
      * 密码
      */
-    String password;
+    private String password;
 
     /**
      * 子路径

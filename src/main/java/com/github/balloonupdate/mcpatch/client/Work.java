@@ -215,6 +215,8 @@ public class Work {
                     if (change instanceof FileChange.CreateFolder) {
                         FileChange.CreateFolder op = (FileChange.CreateFolder) change;
 
+                        PathUtility.validateServerPath(op.path, baseDir);
+
                         RuntimeAssert.isTrue(!createFolders.contains(op.path));
 
                         // 先删除 deleteFolders 里的文件夹。没有的话，再加入 createFolders 里面
@@ -227,6 +229,8 @@ public class Work {
 
                     if (change instanceof FileChange.UpdateFile) {
                         FileChange.UpdateFile op = (FileChange.UpdateFile) change;
+
+                        PathUtility.validateServerPath(op.path, baseDir);
 
                         // 删除已有的东西，避免下面重复添加报错
                         updateFiles.removeIf(e -> e.path.equals(op.path));
@@ -242,6 +246,8 @@ public class Work {
                     if (change instanceof FileChange.DeleteFolder) {
                         FileChange.DeleteFolder op = (FileChange.DeleteFolder) change;
 
+                        PathUtility.validateServerPath(op.path, baseDir);
+
                         // 先删除 createFolders 里的文件夹。没有的话，再加入 deleteFolders 里面
                         if (createFolders.contains(op.path)) {
                             createFolders.remove(op.path);
@@ -253,6 +259,8 @@ public class Work {
                     if (change instanceof FileChange.DeleteFile) {
                         FileChange.DeleteFile op = (FileChange.DeleteFile) change;
 
+                        PathUtility.validateServerPath(op.path, baseDir);
+
                         // 处理那些刚下载又马上要被删的文件，这些文件不用重复下载
                         if (updateFiles.stream().anyMatch(e -> e.path.equals(op.path))) {
                             updateFiles.removeIf(e -> e.path.equals(op.path));
@@ -263,6 +271,10 @@ public class Work {
 
                     if (change instanceof FileChange.MoveFile) {
                         FileChange.MoveFile op = (FileChange.MoveFile) change;
+
+                        // 验证路径安全性
+                        PathUtility.validateServerPath(op.from, baseDir);
+                        PathUtility.validateServerPath(op.to, baseDir);
 
                         // 单独处理还没有下载的文件
                         Optional<TempUpdateFile> find = updateFiles.stream()
