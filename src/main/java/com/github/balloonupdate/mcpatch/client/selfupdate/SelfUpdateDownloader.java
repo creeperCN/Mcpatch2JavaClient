@@ -163,7 +163,7 @@ public class SelfUpdateDownloader {
         content.append("path=").append(newJarPath.toAbsolutePath()).append("\n");
         content.append("time=").append(System.currentTimeMillis()).append("\n");
 
-        Files.writeString(markerFile, content.toString());
+        Files.write(markerFile, content.toString().getBytes());
 
         Log.debug("已创建更新标记文件: " + markerFile);
     }

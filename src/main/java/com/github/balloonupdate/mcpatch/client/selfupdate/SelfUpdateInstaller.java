@@ -7,6 +7,7 @@ import java.io.BufferedReader;
 import java.io.StringReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 
 /**
@@ -34,7 +35,7 @@ public class SelfUpdateInstaller {
             Log.debug("读取标记文件: " + markerFile);
 
             // 解析标记文件
-            String markerContent = Files.readString(markerFile);
+            String markerContent = new String(Files.readAllBytes(markerFile));
             Path newJarPath = parseMarkerFile(markerContent);
 
             if (newJarPath == null) {
@@ -113,7 +114,7 @@ public class SelfUpdateInstaller {
 
             while ((line = reader.readLine()) != null) {
                 if (line.startsWith("path=")) {
-                    jarPath = Path.of(line.substring(5).trim());
+                    jarPath = Paths.get(line.substring(5).trim());
                 }
             }
 
@@ -121,7 +122,7 @@ public class SelfUpdateInstaller {
             if (jarPath == null && !content.trim().isEmpty()) {
                 String firstLine = content.split("\n")[0].trim();
                 if (!firstLine.isEmpty()) {
-                    jarPath = Path.of(firstLine);
+                    jarPath = Paths.get(firstLine);
                 }
             }
 
