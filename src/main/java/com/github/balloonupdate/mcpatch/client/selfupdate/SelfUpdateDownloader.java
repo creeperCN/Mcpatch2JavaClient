@@ -3,9 +3,6 @@ package com.github.balloonupdate.mcpatch.client.selfupdate;
 import com.github.balloonupdate.mcpatch.client.logging.Log;
 
 import java.io.InputStream;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
@@ -15,6 +12,7 @@ import java.security.MessageDigest;
  * 支持跨平台（Windows/Linux/macOS/Android）
  * 自动选择最佳下载位置
  * 支持镜像切换（超时自动切换下一个）
+ * 支持多线程并行下载
  */
 public class SelfUpdateDownloader {
     /**
@@ -58,83 +56,61 @@ public class SelfUpdateDownloader {
     }
 
     /**
-     * 带镜像切换的下载
+     * 带镜像切换的下载（支持多线程）
      */
     private static void downloadWithMirrorFallback(String originalUrl, Path targetFile, String expectedChecksum) throws Exception {
         Exception lastException = null;
         String currentUrl = GitHubMirror.convertDownloadUrl(originalUrl);
         int maxTries = 5;
-
+        
         for (int i = 0; i < maxTries; i++) {
-            HttpURLConnection conn = null;
             try {
                 Log.info("开始下载: " + currentUrl);
-
-                URL url = new URL(currentUrl);
-                conn = (HttpURLConnection) url.openConnection();
-                conn.setConnectTimeout(GitHubMirror.getConnectTimeout());
-                conn.setReadTimeout(GitHubMirror.getReadTimeout());
-                conn.setRequestProperty("User-Agent", "Mcpatch2JavaClient-Updater");
-
-                int responseCode = conn.getResponseCode();
-                if (responseCode != 200) {
-                    throw new RuntimeException("HTTP " + responseCode);
-                }
-
-                long contentLength = conn.getContentLengthLong();
-                Log.debug("文件大小: " + formatSize(contentLength));
-
-                // 下载并计算校验值
-                MessageDigest digest = MessageDigest.getInstance("SHA-256");
-
-                try (InputStream input = conn.getInputStream();
-                     OutputStream output = Files.newOutputStream(targetFile)) {
-
-                    byte[] buffer = new byte[64 * 1024];
-                    long downloaded = 0;
-                    int len;
-                    long lastLogTime = System.currentTimeMillis();
-
-                    while ((len = input.read(buffer)) != -1) {
-                        output.write(buffer, 0, len);
-                        digest.update(buffer, 0, len);
-                        downloaded += len;
-
-                        // 每 2 秒输出一次进度
-                        long now = System.currentTimeMillis();
-                        if (now - lastLogTime > 2000) {
-                            int percent = contentLength > 0 ? (int)(downloaded * 100 / contentLength) : 0;
-                            Log.debug("下载进度: " + percent + "% (" + formatSize(downloaded) + ")");
-                            lastLogTime = now;
+                
+                // 使用多线程下载
+                final String downloadUrl = currentUrl;
+                MultiThreadDownloader.download(downloadUrl, targetFile, 4, new MultiThreadDownloader.ProgressCallback() {
+                    @Override
+                    public void onProgress(long downloaded, long total, int percent) {
+                        if (total > 0) {
+                            Log.debug("下载进度: " + percent + "% (" + formatSize(downloaded) + "/" + formatSize(total) + ")");
                         }
                     }
-                }
-
-                Log.info("下载完成");
-
+                    
+                    @Override
+                    public void onComplete() {
+                        Log.info("下载完成");
+                    }
+                    
+                    @Override
+                    public void onError(Exception e) {
+                        Log.error("下载错误: " + e.getMessage());
+                    }
+                });
+                
                 // 校验 checksum（如果提供）
-                String actualChecksum = bytesToHex(digest.digest());
-                Log.debug("文件校验值(SHA-256): " + actualChecksum);
-
                 if (expectedChecksum != null && !expectedChecksum.isEmpty()) {
+                    String actualChecksum = calculateChecksum(targetFile);
+                    Log.debug("文件校验值(SHA-256): " + actualChecksum);
+                    
                     if (!expectedChecksum.equalsIgnoreCase(actualChecksum)) {
                         Files.delete(targetFile);
                         throw new RuntimeException("校验值不匹配! 预期: " + expectedChecksum + ", 实际: " + actualChecksum);
                     }
                     Log.debug("校验值验证通过");
                 }
-
+                
                 // 成功，缓存镜像
                 GitHubMirror.markDownloadMirrorSuccess();
                 return;
-
+                
             } catch (Exception e) {
                 Log.debug("下载失败: " + e.getMessage());
                 lastException = e;
-
+                
                 // 删除可能的部分下载文件
-                Files.deleteIfExists(targetFile);
-
+                cleanupPartialFiles(targetFile);
+                
                 // 切换到下一个镜像
                 if (GitHubMirror.isGitHubUrl(currentUrl)) {
                     currentUrl = GitHubMirror.getNextDownloadMirrorUrl(currentUrl, originalUrl);
@@ -142,14 +118,48 @@ public class SelfUpdateDownloader {
                     // 已经是原始链接了，不再尝试
                     break;
                 }
-            } finally {
-                if (conn != null) {
-                    conn.disconnect();
-                }
             }
         }
-
+        
         throw lastException != null ? lastException : new Exception("所有下载尝试都失败");
+    }
+    
+    /**
+     * 清理部分下载的文件
+     */
+    private static void cleanupPartialFiles(Path targetFile) {
+        try {
+            if (Files.exists(targetFile)) {
+                Files.delete(targetFile);
+            }
+            // 删除分片文件
+            Path parent = targetFile.getParent();
+            String fileName = targetFile.getFileName().toString();
+            int index = 0;
+            while (true) {
+                Path partFile = parent.resolve(fileName + ".part" + index);
+                if (!Files.exists(partFile)) break;
+                Files.delete(partFile);
+                index++;
+            }
+        } catch (Exception e) {
+            // 忽略清理错误
+        }
+    }
+    
+    /**
+     * 计算文件校验值
+     */
+    private static String calculateChecksum(Path file) throws Exception {
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        try (InputStream input = Files.newInputStream(file)) {
+            byte[] buffer = new byte[64 * 1024];
+            int len;
+            while ((len = input.read(buffer)) != -1) {
+                digest.update(buffer, 0, len);
+            }
+        }
+        return bytesToHex(digest.digest());
     }
 
     /**
