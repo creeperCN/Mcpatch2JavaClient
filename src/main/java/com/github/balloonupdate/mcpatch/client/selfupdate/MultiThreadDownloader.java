@@ -36,6 +36,16 @@ public class MultiThreadDownloader {
     private static final long MIN_CHUNK_SIZE = 1024 * 1024;
     
     /**
+     * 连接超时（毫秒）
+     */
+    private static final int CONNECT_TIMEOUT = 15000;
+    
+    /**
+     * 读取超时（毫秒）
+     */
+    private static final int READ_TIMEOUT = 60000;
+    
+    /**
      * 下载线程池（有界，最多8个线程，daemon线程不阻止JVM退出）
      */
     private static final ExecutorService executor = new ThreadPoolExecutor(
@@ -99,8 +109,8 @@ public class MultiThreadDownloader {
             URL url = new URL(fileUrl);
             conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("HEAD");
-            conn.setConnectTimeout(GitHubMirror.getConnectTimeout());
-            conn.setReadTimeout(GitHubMirror.getReadTimeout());
+            conn.setConnectTimeout(CONNECT_TIMEOUT);
+            conn.setReadTimeout(READ_TIMEOUT);
             conn.setRequestProperty("User-Agent", "Mcpatch2JavaClient-Updater");
             
             int responseCode = conn.getResponseCode();
@@ -124,12 +134,12 @@ public class MultiThreadDownloader {
         try {
             URL url = new URL(fileUrl);
             conn = (HttpURLConnection) url.openConnection();
-            conn.setConnectTimeout(GitHubMirror.getConnectTimeout());
-            conn.setReadTimeout(GitHubMirror.getReadTimeout());
+            conn.setConnectTimeout(CONNECT_TIMEOUT);
+            conn.setReadTimeout(READ_TIMEOUT);
             conn.setRequestProperty("User-Agent", "Mcpatch2JavaClient-Updater");
             
             int responseCode = conn.getResponseCode();
-            if (responseCode != 200) {
+            if (responseCode != 200 && responseCode != 206) {
                 throw new RuntimeException("下载失败: HTTP " + responseCode);
             }
             
@@ -239,8 +249,8 @@ public class MultiThreadDownloader {
         try {
             URL url = new URL(fileUrl);
             conn = (HttpURLConnection) url.openConnection();
-            conn.setConnectTimeout(GitHubMirror.getConnectTimeout());
-            conn.setReadTimeout(GitHubMirror.getReadTimeout());
+            conn.setConnectTimeout(CONNECT_TIMEOUT);
+            conn.setReadTimeout(READ_TIMEOUT);
             conn.setRequestProperty("User-Agent", "Mcpatch2JavaClient-Updater");
             conn.setRequestProperty("Range", "bytes=" + start + "-" + end);
             

@@ -7,7 +7,7 @@ import com.github.balloonupdate.mcpatch.client.utils.Env;
  * 客户端自身更新管理器
  * 统一管理更新检查、下载、安装流程
  * 
- * 使用 GitHub Release API 获取更新
+ * 从服主 McPatch2 管理端获取更新
  * 支持跨平台（Windows/Linux/macOS/Android）
  */
 public class SelfUpdateManager {
@@ -39,52 +39,43 @@ public class SelfUpdateManager {
                 return true;
             }
 
-            // 3. 检查是否有新版本
-            String githubRepo = getGitHubRepo();
-            if (githubRepo == null || githubRepo.isEmpty()) {
-                Log.debug("未配置 GitHub 仓库，跳过自更新检查");
+            // 3. 检查是否配置了更新服务器
+            String serverUrl = getUpdateServerUrl();
+            if (serverUrl == null || serverUrl.isEmpty()) {
+                Log.debug("未配置客户端更新服务器，跳过自更新检查");
                 if (showWindow) {
                     SelfUpdateWindow.closeWindow();
                 }
                 return false;
             }
 
-            // 4. 配置镜像加速
-            configureMirror();
-
-            // 5. 从 GitHub Release 获取版本信息
+            // 4. 从服主服务器获取版本信息
             if (showWindow) {
-                SelfUpdateWindow.updateStatus("正在从 GitHub 获取版本信息...");
+                SelfUpdateWindow.updateStatus("正在从服主服务器获取版本信息...");
             }
             
-            ClientVersionInfo versionInfo = fetchFromGitHub(githubRepo);
+            ClientVersionInfo versionInfo = ServerVersionClient.fetchVersionInfo(serverUrl);
 
             String currentVersion = Env.getVersion();
-            Log.debug("当前版本: " + currentVersion + ", 最新版本: " + versionInfo.latestVersion);
+            Log.debug("当前版本: " + currentVersion + ", 服主指定版本: " + versionInfo.latestVersion);
 
-            // 6. 判断是否需要更新
+            // 5. 判断是否需要更新
             if (!SelfUpdateChecker.needUpdate(currentVersion, versionInfo.latestVersion)) {
-                Log.debug("客户端已是最新版本");
+                Log.debug("客户端版本符合服主要求");
                 if (showWindow) {
-                    SelfUpdateWindow.updateStatus("客户端已是最新版本 (" + currentVersion + ")");
+                    SelfUpdateWindow.updateStatus("客户端版本符合服主要求 (" + currentVersion + ")");
                     Thread.sleep(500);
                     SelfUpdateWindow.closeWindow();
                 }
                 return false;
             }
 
-            // 7. 检查预发布版本
-            if (versionInfo.prerelease && !isPreReleaseEnabled()) {
-                Log.debug("最新版本为预发布版本，跳过更新");
-                if (showWindow) {
-                    SelfUpdateWindow.updateStatus("最新版本为预发布版本，跳过更新");
-                    Thread.sleep(500);
-                    SelfUpdateWindow.closeWindow();
-                }
-                return false;
+            // 6. 检查强制更新
+            if (versionInfo.forceUpdate) {
+                Log.info("服主强制要求更新客户端");
             }
 
-            // 8. 下载新版本
+            // 7. 下载新版本
             if (showWindow) {
                 SelfUpdateWindow.updateStatus("发现新版本 " + versionInfo.latestVersion + "，正在下载...");
             }
@@ -94,7 +85,7 @@ public class SelfUpdateManager {
                 Log.info("更新日志: " + versionInfo.changelog.replace("\n", "\n         "));
             }
 
-            // 使用 SelfUpdateDownloader 下载（带镜像切换）
+            // 使用 SelfUpdateDownloader 下载
             SelfUpdateDownloader.downloadNewVersion(versionInfo.downloadUrl, versionInfo.checksum);
 
             if (showWindow) {
@@ -130,51 +121,10 @@ public class SelfUpdateManager {
     }
 
     /**
-     * 从 GitHub Release 获取版本信息
+     * 获取更新服务器地址
      */
-    private static ClientVersionInfo fetchFromGitHub(String githubRepo) throws Exception {
-        String[] parts = githubRepo.split("/");
-        if (parts.length != 2) {
-            throw new IllegalArgumentException("GitHub 仓库格式错误，应为 owner/repo: " + githubRepo);
-        }
-
-        String owner = parts[0];
-        String repo = parts[1];
-
-        Log.debug("从 GitHub Release 获取版本: " + owner + "/" + repo);
-
-        return GitHubReleaseClient.fetchLatestRelease(owner, repo);
-    }
-
-    /**
-     * 配置镜像加速
-     */
-    private static void configureMirror() {
-        String mirrorConfig = getMirrorConfig();
-
-        if ("false".equalsIgnoreCase(mirrorConfig)) {
-            GitHubReleaseClient.setUseMirror(false);
-            Log.debug("镜像加速已禁用");
-        } else {
-            GitHubReleaseClient.setUseMirror(true);
-            Log.debug("镜像加速模式: 启用（超时自动切换）");
-        }
-    }
-
-    private static String getGitHubRepo() {
-        return System.getProperty("mcpatch.selfupdate.github-repo", "");
-    }
-
-    private static String getMirrorConfig() {
-        return System.getProperty("mcpatch.selfupdate.mirror", "auto");
-    }
-
-    private static String getChannel() {
-        return System.getProperty("mcpatch.selfupdate.channel", "stable");
-    }
-
-    private static boolean isPreReleaseEnabled() {
-        return "beta".equals(getChannel()) || "alpha".equals(getChannel());
+    private static String getUpdateServerUrl() {
+        return System.getProperty("mcpatch.selfupdate.server-url", "");
     }
 
     public static boolean isEnabled() {
