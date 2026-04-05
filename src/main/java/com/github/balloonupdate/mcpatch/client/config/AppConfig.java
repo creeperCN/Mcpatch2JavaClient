@@ -126,15 +126,20 @@ public class AppConfig {
         public boolean enabled;
 
         /**
+         * 服主服务器地址（McPatch2 管理端）
+         * 例如: http://your-server:6700
+         */
+        public String serverUrl;
+
+        /**
          * GitHub 仓库（格式: owner/repo）
+         * @deprecated 已废弃，请使用 serverUrl
          */
         public String githubRepo;
 
         /**
          * GitHub 镜像加速模式
-         * auto: 自动检测（推荐）
-         * true: 强制启用镜像
-         * false: 禁用镜像
+         * @deprecated 已废弃
          */
         public String mirror;
 

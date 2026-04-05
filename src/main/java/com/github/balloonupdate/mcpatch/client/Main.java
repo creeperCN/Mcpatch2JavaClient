@@ -149,11 +149,8 @@ public class Main {
                     Log.info("正在检查客户端自身更新...");
                     
                     // 设置系统属性传递配置
-                    if (config.clientUpdate.githubRepo != null && !config.clientUpdate.githubRepo.isEmpty()) {
-                        System.setProperty("mcpatch.selfupdate.github-repo", config.clientUpdate.githubRepo);
-                    }
-                    if (config.clientUpdate.mirror != null) {
-                        System.setProperty("mcpatch.selfupdate.mirror", config.clientUpdate.mirror);
+                    if (config.clientUpdate.serverUrl != null && !config.clientUpdate.serverUrl.isEmpty()) {
+                        System.setProperty("mcpatch.selfupdate.server-url", config.clientUpdate.serverUrl);
                     }
                     if (config.clientUpdate.channel != null) {
                         System.setProperty("mcpatch.selfupdate.channel", config.clientUpdate.channel);
