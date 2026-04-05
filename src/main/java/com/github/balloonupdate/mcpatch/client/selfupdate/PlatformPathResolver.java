@@ -33,6 +33,11 @@ public class PlatformPathResolver {
      * 缓存备用目录
      */
     private static Path fallbackDirectory = null;
+    
+    /**
+     * 缓存更新目录（避免每次重新计算）
+     */
+    private static Path cachedUpdateDirectory = null;
 
     /**
      * 检测当前平台
@@ -110,10 +115,16 @@ public class PlatformPathResolver {
      * 3. 临时目录
      */
     public static Path getWritableUpdateDirectory() {
+        // 使用缓存，避免每次重新计算导致路径不一致
+        if (cachedUpdateDirectory != null) {
+            return cachedUpdateDirectory;
+        }
+        
         // 尝试 1: JAR 同目录
         Path jarDir = getJarDirectory();
         if (jarDir != null && isDirectoryWritable(jarDir)) {
-            return jarDir;
+            cachedUpdateDirectory = jarDir;
+            return cachedUpdateDirectory;
         }
 
         // 尝试 2: 用户主目录下的 .mcpatch 目录
@@ -122,7 +133,8 @@ public class PlatformPathResolver {
             try {
                 Files.createDirectories(homeDir);
                 if (isDirectoryWritable(homeDir)) {
-                    return homeDir;
+                    cachedUpdateDirectory = homeDir;
+                    return cachedUpdateDirectory;
                 }
             } catch (Exception e) {
                 // 忽略，尝试下一个
@@ -132,11 +144,13 @@ public class PlatformPathResolver {
         // 尝试 3: 临时目录
         Path tempDir = Paths.get(System.getProperty("java.io.tmpdir"));
         if (isDirectoryWritable(tempDir)) {
-            return tempDir;
+            cachedUpdateDirectory = tempDir;
+            return cachedUpdateDirectory;
         }
 
         // 最后：返回当前目录
-        return Paths.get(System.getProperty("user.dir", "."));
+        cachedUpdateDirectory = Paths.get(System.getProperty("user.dir", "."));
+        return cachedUpdateDirectory;
     }
 
     /**
