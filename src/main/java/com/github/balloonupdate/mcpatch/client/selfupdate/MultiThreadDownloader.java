@@ -13,6 +13,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 多线程下载器
@@ -322,6 +324,128 @@ public class MultiThreadDownloader {
         if (bytes < 1024 * 1024) return String.format("%.1f KB", bytes / 1024.0);
         if (bytes < 1024 * 1024 * 1024) return String.format("%.1f MB", bytes / 1024.0 / 1024.0);
         return String.format("%.1f GB", bytes / 1024.0 / 1024.0 / 1024.0);
+    }
+
+    /**
+     * 批量下载多个小文件
+     * @param urlPaths 下载 URL 和目标路径对
+     * @param maxConcurrent 最大并发数
+     * @param callback 进度回调
+     * @throws Exception 下载异常
+     */
+    public static void batchDownload(List<UrlPathPair> urlPaths, int maxConcurrent, BatchProgressCallback callback) throws Exception {
+        if (urlPaths == null || urlPaths.isEmpty()) {
+            return;
+        }
+        
+        if (maxConcurrent <= 0) {
+            maxConcurrent = Math.min(urlPaths.size(), 8);
+        }
+        
+        Log.info("批量下载 " + urlPaths.size() + " 个文件，最大并发: " + maxConcurrent);
+        
+        // 使用信号量控制并发
+        Semaphore semaphore = new Semaphore(maxConcurrent);
+        List<Future<?>> futures = new ArrayList<>();
+        AtomicInteger completed = new AtomicInteger(0);
+        List<Exception> errors = new CopyOnWriteArrayList<>();
+        
+        for (int i = 0; i < urlPaths.size(); i++) {
+            final int index = i;
+            final UrlPathPair pair = urlPaths.get(i);
+            
+            futures.add(executor.submit(() -> {
+                try {
+                    semaphore.acquire();
+                    try {
+                        if (callback != null) {
+                            callback.onFileStart(index, pair.url);
+                        }
+                        
+                        // 下载单个文件（使用单线程下载）
+                        singleThreadDownload(pair.url, pair.path, new ProgressCallback() {
+                            @Override
+                            public void onProgress(long downloaded, long total, int percent) {
+                                if (callback != null) {
+                                    callback.onFileProgress(index, downloaded, total, percent);
+                                }
+                            }
+                            
+                            @Override
+                            public void onComplete() {
+                                // 文件下载完成回调
+                            }
+                            
+                            @Override
+                            public void onError(Exception e) {
+                                // 错误处理在外部
+                            }
+                        });
+                        
+                        if (callback != null) {
+                            callback.onFileComplete(index, pair.url);
+                        }
+                        
+                        int done = completed.incrementAndGet();
+                        if (callback != null) {
+                            callback.onBatchProgress(done, urlPaths.size());
+                        }
+                        
+                    } finally {
+                        semaphore.release();
+                    }
+                } catch (Exception e) {
+                    errors.add(e);
+                    if (callback != null) {
+                        callback.onFileError(index, pair.url, e);
+                    }
+                    throw new RuntimeException("文件下载失败: " + pair.url, e);
+                }
+            }));
+        }
+        
+        // 等待所有下载完成
+        try {
+            for (Future<?> future : futures) {
+                future.get();
+            }
+        } catch (InterruptedException | ExecutionException e) {
+            throw new Exception("批量下载失败", e);
+        }
+        
+        // 检查错误
+        if (!errors.isEmpty()) {
+            throw errors.get(0);
+        }
+        
+        if (callback != null) {
+            callback.onBatchComplete();
+        }
+    }
+    
+    /**
+     * URL 和路径对
+     */
+    public static class UrlPathPair {
+        public final String url;
+        public final Path path;
+        
+        public UrlPathPair(String url, Path path) {
+            this.url = url;
+            this.path = path;
+        }
+    }
+    
+    /**
+     * 批量下载进度回调
+     */
+    public interface BatchProgressCallback {
+        void onFileStart(int index, String url);
+        void onFileProgress(int index, long downloaded, long total, int percent);
+        void onFileComplete(int index, String url);
+        void onFileError(int index, String url, Exception e);
+        void onBatchProgress(int completed, int total);
+        void onBatchComplete();
     }
 
     /**
