@@ -5,29 +5,56 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
  * 文件 hash 计算类，所有计算文件哈希值时都会调用此函数，可以在此函数中替换任意哈希算法
+ * 使用对象池减少 GC 压力
  */
 public class HashUtility {
     /**
-     * 计算一个文件的校验值（线程安全）
+     * CRC64 对象池
+     */
+    private static final ConcurrentLinkedQueue<Crc64_XZ> crc64Pool = new ConcurrentLinkedQueue<>();
+    
+    /**
+     * CRC16 对象池
+     */
+    private static final ConcurrentLinkedQueue<Crc16_IBM_SDLC> crc16Pool = new ConcurrentLinkedQueue<>();
+    
+    /**
+     * 计算一个文件的校验值（线程安全，使用对象池）
      */
     public static String calculateHash(Path file) throws IOException {
-        // 每次调用创建局部实例，避免多线程竞态
-        Crc64_XZ crc64 = new Crc64_XZ();
-        Crc16_IBM_SDLC crc16 = new Crc16_IBM_SDLC();
+        // 从对象池获取实例，没有则创建新的
+        Crc64_XZ crc64 = crc64Pool.poll();
+        if (crc64 == null) {
+            crc64 = new Crc64_XZ();
+        }
+        
+        Crc16_IBM_SDLC crc16 = crc16Pool.poll();
+        if (crc16 == null) {
+            crc16 = new Crc16_IBM_SDLC();
+        }
+        
+        try {
+            crc64.update(file);
+            crc16.update(file);
 
-        crc64.update(file);
-        crc16.update(file);
+            long a = crc64.getValue();
+            long b = crc16.getValue();
 
-        long a = crc64.getValue();
-        long b = crc16.getValue();
+            String crc64Hex = String.format("%016x", a);
+            String crc16Hex = String.format("%04x", b);
 
-        String crc64Hex = String.format("%016x", a);
-        String crc16Hex = String.format("%04x", b);
-
-        return crc64Hex + "_" + crc16Hex;
+            return crc64Hex + "_" + crc16Hex;
+        } finally {
+            // 重置状态并放回对象池
+            crc64.reset();
+            crc16.reset();
+            crc64Pool.offer(crc64);
+            crc16Pool.offer(crc16);
+        }
     }
 }
 

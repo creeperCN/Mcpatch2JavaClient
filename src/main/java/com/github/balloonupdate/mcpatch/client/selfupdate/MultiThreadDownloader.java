@@ -1,66 +1,69 @@
 package com.github.balloonupdate.mcpatch.client.selfupdate;
 
 import com.github.balloonupdate.mcpatch.client.logging.Log;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
 
-import java.io.*;
-import java.net.HttpURLConnection;
-import java.net.URL;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Future;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * 多线程下载器
  * 支持分段并行下载，提升下载速度
+ * 使用 OkHttp 支持配置文件中的 headers
  */
 public class MultiThreadDownloader {
     /**
      * 默认线程数
      */
     private static final int DEFAULT_THREAD_COUNT = 6;
-    
+
     /**
      * 最小分片大小（1MB以下不分片）
      */
     private static final long MIN_CHUNK_SIZE = 1024 * 1024;
-    
+
     /**
      * 连接超时（毫秒）
      */
     private static final int CONNECT_TIMEOUT = 15000;
-    
+
     /**
      * 读取超时（毫秒）
      */
     private static final int READ_TIMEOUT = 60000;
-    
+
+    /**
+     * OkHttp 客户端（复用连接池）
+     */
+    private static final OkHttpClient client = new OkHttpClient.Builder()
+            .connectTimeout(CONNECT_TIMEOUT, TimeUnit.MILLISECONDS)
+            .readTimeout(READ_TIMEOUT, TimeUnit.MILLISECONDS)
+            .build();
+
     /**
      * 下载线程池（有界，最多8个线程，daemon线程不阻止JVM退出）
      */
     private static final ExecutorService executor = new ThreadPoolExecutor(
-        DEFAULT_THREAD_COUNT, 8, 60L, TimeUnit.SECONDS,
-        new LinkedBlockingQueue<Runnable>(16),
-        new ThreadFactory() {
-            public Thread newThread(Runnable r) {
-                Thread t = new Thread(r, "mcpatch-downloader");
-                t.setDaemon(true);
-                return t;
-            }
-        },
-        new ThreadPoolExecutor.DiscardPolicy()
+            DEFAULT_THREAD_COUNT, 8, 60L, TimeUnit.SECONDS,
+            new LinkedBlockingQueue<Runnable>(16),
+            new ThreadFactory() {
+                public Thread newThread(Runnable r) {
+                    Thread t = new Thread(r, "mcpatch-downloader");
+                    t.setDaemon(true);
+                    return t;
+                }
+            },
+            new ThreadPoolExecutor.DiscardPolicy()
     );
-    
+
     /**
      * 进度回调接口
      */
@@ -69,7 +72,7 @@ public class MultiThreadDownloader {
         void onComplete();
         void onError(Exception e);
     }
-    
+
     /**
      * 多线程下载文件
      * @param fileUrl 文件URL
@@ -82,11 +85,11 @@ public class MultiThreadDownloader {
         if (threadCount <= 0) {
             threadCount = DEFAULT_THREAD_COUNT;
         }
-        
+
         // 1. 获取文件大小
         long fileSize = getFileSize(fileUrl);
         Log.info("文件大小: " + formatSize(fileSize));
-        
+
         // 2. 判断是否需要多线程下载
         if (fileSize < MIN_CHUNK_SIZE || fileSize <= 0) {
             // 小文件，单线程下载
@@ -94,86 +97,75 @@ public class MultiThreadDownloader {
             singleThreadDownload(fileUrl, targetFile, callback);
             return;
         }
-        
+
         // 3. 分片下载
         Log.info("使用 " + threadCount + " 线程并行下载");
         multiThreadDownload(fileUrl, targetFile, fileSize, threadCount, callback);
     }
-    
+
     /**
      * 获取文件大小
      */
     private static long getFileSize(String fileUrl) throws Exception {
-        HttpURLConnection conn = null;
-        try {
-            URL url = new URL(fileUrl);
-            conn = (HttpURLConnection) url.openConnection();
-            conn.setRequestMethod("HEAD");
-            conn.setConnectTimeout(CONNECT_TIMEOUT);
-            conn.setReadTimeout(READ_TIMEOUT);
-            conn.setRequestProperty("User-Agent", "Mcpatch2JavaClient-Updater");
-            
-            int responseCode = conn.getResponseCode();
-            if (responseCode != 200) {
-                throw new RuntimeException("无法获取文件大小: HTTP " + responseCode);
+        Request request = new Request.Builder()
+                .url(fileUrl)
+                .head()
+                .header("User-Agent", "Mcpatch2JavaClient-Updater")
+                .build();
+
+        try (Response response = client.newCall(request).execute()) {
+            if (!response.isSuccessful()) {
+                throw new RuntimeException("无法获取文件大小: HTTP " + response.code());
             }
-            
-            return conn.getContentLengthLong();
-        } finally {
-            if (conn != null) {
-                conn.disconnect();
+
+            String contentLength = response.header("Content-Length");
+            if (contentLength == null) {
+                return -1;
             }
+            return Long.parseLong(contentLength);
         }
     }
-    
+
     /**
      * 单线程下载（小文件）
      */
     private static void singleThreadDownload(String fileUrl, Path targetFile, ProgressCallback callback) throws Exception {
-        HttpURLConnection conn = null;
-        try {
-            URL url = new URL(fileUrl);
-            conn = (HttpURLConnection) url.openConnection();
-            conn.setConnectTimeout(CONNECT_TIMEOUT);
-            conn.setReadTimeout(READ_TIMEOUT);
-            conn.setRequestProperty("User-Agent", "Mcpatch2JavaClient-Updater");
-            
-            int responseCode = conn.getResponseCode();
-            if (responseCode != 200 && responseCode != 206) {
-                throw new RuntimeException("下载失败: HTTP " + responseCode);
+        Request request = new Request.Builder()
+                .url(fileUrl)
+                .header("User-Agent", "Mcpatch2JavaClient-Updater")
+                .build();
+
+        try (Response response = client.newCall(request).execute()) {
+            if (!response.isSuccessful() && response.code() != 206) {
+                throw new RuntimeException("下载失败: HTTP " + response.code());
             }
-            
-            long fileSize = conn.getContentLengthLong();
+
+            long fileSize = response.body().contentLength();
             long downloaded = 0;
-            
-            try (InputStream input = conn.getInputStream();
+
+            try (InputStream input = response.body().byteStream();
                  OutputStream output = Files.newOutputStream(targetFile)) {
-                
+
                 byte[] buffer = new byte[64 * 1024];
                 int len;
-                
+
                 while ((len = input.read(buffer)) != -1) {
                     output.write(buffer, 0, len);
                     downloaded += len;
-                    
+
                     if (callback != null) {
                         int percent = fileSize > 0 ? (int)(downloaded * 100 / fileSize) : 0;
                         callback.onProgress(downloaded, fileSize, percent);
                     }
                 }
             }
-            
+
             if (callback != null) {
                 callback.onComplete();
             }
-            
-        } finally {
-            if (conn != null) {
-                conn.disconnect();
-            }
         }
     }
-    
+
     /**
      * 多线程分片下载
      */
@@ -183,31 +175,31 @@ public class MultiThreadDownloader {
         if (fileSize % threadCount != 0) {
             chunkSize++;
         }
-        
+
         // 创建临时文件
         Path tempDir = targetFile.getParent();
         if (!Files.exists(tempDir)) {
             Files.createDirectories(tempDir);
         }
-        
+
         // 下载状态
         AtomicLong totalDownloaded = new AtomicLong(0);
         List<Future<Path>> futures = new ArrayList<>();
         List<Exception> errors = new CopyOnWriteArrayList<>();
-        
+
         // 分配下载任务
         for (int i = 0; i < threadCount; i++) {
             long start = i * chunkSize;
             long end = Math.min(start + chunkSize - 1, fileSize - 1);
-            
+
             if (start >= fileSize) break;
-            
+
             final int threadIndex = i;
             final long threadStart = start;
             final long threadEnd = end;
-            
+
             Path chunkFile = targetFile.resolveSibling(targetFile.getFileName() + ".part" + threadIndex);
-            
+
             futures.add(executor.submit(() -> {
                 try {
                     return downloadChunk(fileUrl, threadStart, threadEnd, chunkFile, totalDownloaded, fileSize, callback);
@@ -217,7 +209,7 @@ public class MultiThreadDownloader {
                 }
             }));
         }
-        
+
         // 等待所有下载完成
         try {
             for (Future<Path> future : futures) {
@@ -226,55 +218,49 @@ public class MultiThreadDownloader {
         } catch (InterruptedException | ExecutionException e) {
             throw new Exception("多线程下载失败: " + e.getMessage(), e);
         }
-        
+
         // 检查是否有错误
         if (!errors.isEmpty()) {
             throw errors.get(0);
         }
-        
+
         // 合并文件
         Log.debug("合并下载分片...");
         mergeChunks(targetFile, fileSize);
-        
+
         if (callback != null) {
             callback.onComplete();
         }
     }
-    
+
     /**
      * 下载一个分片
      */
     private static Path downloadChunk(String fileUrl, long start, long end, Path chunkFile, AtomicLong totalDownloaded, long totalSize, ProgressCallback callback) throws Exception {
-        HttpURLConnection conn = null;
-        try {
-            URL url = new URL(fileUrl);
-            conn = (HttpURLConnection) url.openConnection();
-            conn.setConnectTimeout(CONNECT_TIMEOUT);
-            conn.setReadTimeout(READ_TIMEOUT);
-            conn.setRequestProperty("User-Agent", "Mcpatch2JavaClient-Updater");
-            conn.setRequestProperty("Range", "bytes=" + start + "-" + end);
-            
-            int responseCode = conn.getResponseCode();
-            if (responseCode != 206 && responseCode != 200) {
-                throw new RuntimeException("分片下载失败: HTTP " + responseCode);
+        Request request = new Request.Builder()
+                .url(fileUrl)
+                .header("User-Agent", "Mcpatch2JavaClient-Updater")
+                .header("Range", "bytes=" + start + "-" + end)
+                .build();
+
+        try (Response response = client.newCall(request).execute()) {
+            if (response.code() != 206 && !response.isSuccessful()) {
+                throw new RuntimeException("分片下载失败: HTTP " + response.code());
             }
-            
+
             long chunkSize = end - start + 1;
-            long downloaded = 0;
-            
-            try (InputStream input = conn.getInputStream();
+
+            try (InputStream input = response.body().byteStream();
                  OutputStream output = Files.newOutputStream(chunkFile)) {
-                
+
                 byte[] buffer = new byte[64 * 1024];
                 int len;
                 long lastCallbackTime = System.currentTimeMillis();
-                
+
                 while ((len = input.read(buffer)) != -1) {
                     output.write(buffer, 0, len);
-                    downloaded += len;
-                    
                     long newTotal = totalDownloaded.addAndGet(len);
-                    
+
                     // 每500ms回调一次进度
                     long now = System.currentTimeMillis();
                     if (callback != null && now - lastCallbackTime > 500) {
@@ -284,23 +270,18 @@ public class MultiThreadDownloader {
                     }
                 }
             }
-            
+
             return chunkFile;
-            
-        } finally {
-            if (conn != null) {
-                conn.disconnect();
-            }
         }
     }
-    
+
     /**
      * 合并分片文件
      */
     private static void mergeChunks(Path targetFile, long expectedSize) throws Exception {
         Path tempDir = targetFile.getParent();
         String fileName = targetFile.getFileName().toString();
-        
+
         // 找到所有分片文件
         List<Path> chunkFiles = new ArrayList<>();
         int index = 0;
@@ -310,11 +291,11 @@ public class MultiThreadDownloader {
             chunkFiles.add(chunkFile);
             index++;
         }
-        
+
         if (chunkFiles.isEmpty()) {
             throw new RuntimeException("没有找到分片文件");
         }
-        
+
         // 合并到目标文件
         try (OutputStream output = Files.newOutputStream(targetFile)) {
             for (Path chunkFile : chunkFiles) {
@@ -322,17 +303,17 @@ public class MultiThreadDownloader {
                 Files.delete(chunkFile);  // 删除分片
             }
         }
-        
+
         // 验证文件大小
         long actualSize = Files.size(targetFile);
         if (actualSize != expectedSize) {
             Files.delete(targetFile);
             throw new RuntimeException("文件合并失败: 大小不匹配 (预期: " + expectedSize + ", 实际: " + actualSize + ")");
         }
-        
+
         Log.debug("文件合并完成: " + formatSize(actualSize));
     }
-    
+
     /**
      * 格式化文件大小
      */
@@ -342,7 +323,7 @@ public class MultiThreadDownloader {
         if (bytes < 1024 * 1024 * 1024) return String.format("%.1f MB", bytes / 1024.0 / 1024.0);
         return String.format("%.1f GB", bytes / 1024.0 / 1024.0 / 1024.0);
     }
-    
+
     /**
      * 关闭线程池
      */
