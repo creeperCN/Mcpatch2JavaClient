@@ -7,6 +7,7 @@ import com.github.balloonupdate.mcpatch.client.logging.FileHandler;
 import com.github.balloonupdate.mcpatch.client.logging.Log;
 import com.github.balloonupdate.mcpatch.client.logging.LogLevel;
 import com.github.balloonupdate.mcpatch.client.selfupdate.SelfUpdateManager;
+import com.github.balloonupdate.mcpatch.client.selfupdate.SelfUpdateInstaller;
 import com.github.balloonupdate.mcpatch.client.ui.McPatchWindow;
 import com.github.balloonupdate.mcpatch.client.utils.BytesUtils;
 import com.github.balloonupdate.mcpatch.client.utils.DialogUtility;
@@ -50,6 +51,9 @@ public class Main {
     }
 
     public static void main(String[] args) throws Throwable  {
+        // 最开始就执行待处理的更新替换（此时 JAR 锁定最弱）
+        SelfUpdateInstaller.installPendingUpdate();
+        
         boolean graphicsMode = Desktop.isDesktopSupported();
 
         if (args.length > 0 && args[0].equals("windowless"))
@@ -59,6 +63,9 @@ public class Main {
     }
 
     public static void premain(String agentArgs, Instrumentation ins) throws Throwable  {
+        // 最开始就执行待处理的更新替换（此时 JAR 锁定最弱）
+        SelfUpdateInstaller.installPendingUpdate();
+        
         boolean graphicsMode = Desktop.isDesktopSupported();
 
         if (agentArgs != null && agentArgs.equals("windowless"))

@@ -24,22 +24,10 @@ public class SelfUpdateManager {
                 SelfUpdateWindow.updateStatus("正在检查客户端更新...");
             }
             
-            // 2. 安装待处理的更新（如果有）
-            if (SelfUpdateInstaller.installPendingUpdate()) {
-                if (showWindow) {
-                    SelfUpdateWindow.updateStatus("已安装客户端更新");
-                }
-                Log.info("已安装客户端更新，建议重启程序");
-                
-                // 关闭窗口
-                if (showWindow) {
-                    Thread.sleep(500);
-                    SelfUpdateWindow.closeWindow();
-                }
-                return true;
-            }
+            // 注意：installPendingUpdate() 已在 main/premain 入口最开始调用
+            // 这里只负责检查更新和下载，不负责安装
 
-            // 3. 检查是否配置了更新服务器
+            // 2. 检查是否配置了更新服务器
             String serverUrl = getUpdateServerUrl();
             if (serverUrl == null || serverUrl.isEmpty()) {
                 Log.debug("未配置客户端更新服务器，跳过自更新检查");
@@ -49,7 +37,7 @@ public class SelfUpdateManager {
                 return false;
             }
 
-            // 4. 从服主服务器获取版本信息
+            // 3. 从服主服务器获取版本信息
             if (showWindow) {
                 SelfUpdateWindow.updateStatus("正在从服主服务器获取版本信息...");
             }
@@ -59,7 +47,7 @@ public class SelfUpdateManager {
             String currentVersion = Env.getVersion();
             Log.debug("当前版本: " + currentVersion + ", 服主指定版本: " + versionInfo.latestVersion);
 
-            // 5. 判断是否需要更新
+            // 4. 判断是否需要更新
             if (!SelfUpdateChecker.needUpdate(currentVersion, versionInfo.latestVersion)) {
                 Log.debug("客户端版本符合服主要求");
                 if (showWindow) {
@@ -70,12 +58,12 @@ public class SelfUpdateManager {
                 return false;
             }
 
-            // 6. 检查强制更新
+            // 5. 检查强制更新
             if (versionInfo.forceUpdate) {
                 Log.info("服主强制要求更新客户端");
             }
 
-            // 7. 下载新版本
+            // 6. 下载新版本
             if (showWindow) {
                 SelfUpdateWindow.updateStatus("发现新版本 " + versionInfo.latestVersion + "，正在下载...");
             }

@@ -70,15 +70,27 @@ public class SelfUpdateInstaller {
                 return false;
             }
 
-            // 备份当前版本
-            backupCurrentVersion(currentJar);
+            // 重命名交换方案（绕过 Windows 文件锁定）
+            // 1. 先把当前 JAR 重命名为 .old
+            Path oldJar = currentJar.resolveSibling(currentJar.getFileName() + ".old");
+            Files.deleteIfExists(oldJar);  // 清理旧的 .old 文件
+            
+            Log.debug("重命名当前版本: " + currentJar + " -> " + oldJar);
+            Files.move(currentJar, oldJar);
+            
+            // 2. 把新版本重命名为当前 JAR
+            Log.debug("重命名新版本: " + newJarPath + " -> " + currentJar);
+            Files.move(newJarPath, currentJar);
 
-            // 替换 JAR 文件
-            Log.info("替换文件中...");
-            Files.move(newJarPath, currentJar, StandardCopyOption.REPLACE_EXISTING);
-
-            // 删除标记文件
+            // 3. 删除标记文件
             Files.deleteIfExists(markerFile);
+
+            // 4. 删除旧版本（后台清理，失败不影响）
+            try {
+                Files.deleteIfExists(oldJar);
+            } catch (Exception e) {
+                Log.debug("无法删除旧版本文件，将在下次启动时清理");
+            }
 
             Log.info("===========================================");
             Log.info("客户端更新安装完成!");
