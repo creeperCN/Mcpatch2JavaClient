@@ -16,6 +16,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.FileTime;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -532,7 +533,7 @@ public class Work {
                 Log.debug("    To   " + to);
 
                 if (Files.exists(from)) {
-                    Files.move(from, to);
+                    Files.move(from, to, StandardCopyOption.REPLACE_EXISTING);
                 }
             }
 
@@ -585,7 +586,7 @@ public class Work {
                     throw new McpatchBusinessException("移动临时文件时，要被移动的源文件不存在: " + from);
                 }
 
-                Files.move(from, to);
+                Files.move(from, to, StandardCopyOption.REPLACE_EXISTING);
             }
 
             // 6.清理临时文件夹
