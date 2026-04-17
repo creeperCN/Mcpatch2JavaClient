@@ -141,6 +141,14 @@ public class McpatchProtocol implements UpdatingServer {
     }
 
     /**
+     * 创建一个新的 McpatchProtocol 实例，使用相同的 URL 和配置。
+     * 用于多线程场景下每个线程创建独立连接。
+     */
+    public McpatchProtocol createNewInstance() throws McpatchBusinessException {
+        return new McpatchProtocol(this.number, "mcpatch://" + this.host + ":" + this.port, this.config);
+    }
+
+    /**
      * 延迟建立连接
      */
     void lazyConnect() throws McpatchBusinessException {

@@ -1,6 +1,8 @@
 package com.github.balloonupdate.mcpatch.client.logging;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 /**
  * 日志记录器。负责打印日志和记录日志
@@ -14,7 +16,7 @@ public class Log {
     /**
      * 日志的 缩进文字 会显示在日志头的后面，日志文本的前面
      */
-    static ArrayList<String> indents = new ArrayList<>();
+    static final List<String> indents = Collections.synchronizedList(new ArrayList<>());
 
     /**
      * 应用程序标识，当开启时，在每条日志的最前面应该增加 Mcpatch 的字样，用来区分这是 mcpatch 输出的日志

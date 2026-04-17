@@ -27,12 +27,12 @@ public class SpeedStat {
     }
 
     // 获取格式化后的采样速度
-    public String sampleSpeed2() {
+    public synchronized String sampleSpeed2() {
         return BytesUtils.convertBytes(sampleSpeed());
     }
 
     // 获取采样速度
-    public long sampleSpeed() {
+    public synchronized long sampleSpeed() {
         // 如果数据不够，直接返回0
         if (frames.size() <= 2) {
             return 0;
@@ -61,7 +61,7 @@ public class SpeedStat {
     }
 
     // 增加了新的字节数
-    public void feed(long bytes) {
+    public synchronized void feed(long bytes) {
         long now = System.currentTimeMillis();
 
         if (!frames.isEmpty()) {
