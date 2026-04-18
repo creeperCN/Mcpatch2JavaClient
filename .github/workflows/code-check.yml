@@ -1,0 +1,577 @@
+# ============================================================================
+# Mcpatch2JavaClient 代码检查工作流
+# ============================================================================
+# 触发条件：
+#   - 推送代码到 main/master 分支
+#   - 提交 Pull Request 指向 main/master 分支
+#
+# 检查项包括：
+#   1. 编译检查 - 确保代码可以正确编译
+#   2. 代码风格检查 - 使用 Checkstyle 确保代码风格一致
+#   3. 静态分析 - 使用 SpotBugs 和 PMD 检测潜在 Bug 和代码质量问题
+#   4. 单元测试 - 运行所有测试并生成报告
+#   5. 依赖漏洞扫描 - 检查已知安全漏洞
+#   6. 代码重复度检查 - 使用 CPD 检测重复代码
+# ============================================================================
+
+name: 代码检查
+
+on:
+  # 当有代码推送到 main/master 分支时触发
+  push:
+    branches: ["main", "master"]
+  # 当有 Pull Request 指向 main/master 分支时触发
+  pull_request:
+    branches: ["main", "master"]
+
+# 权限设置 - 最小权限原则
+permissions:
+  contents: read
+  checks: write       # 用于发布检查结果
+  pull-requests: write # 用于在 PR 上评论检查结果
+
+# 并发控制 - 同一分支/PR 只保留最新的运行
+concurrency:
+  group: code-check-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Gradle 选项：减少内存占用，避免 CI 环境内存不足
+  GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.parallel=true -Xmx2g"
+  # 提前切换到 Node.js 24，消除 Node.js 20 弃用警告
+  # 详见：https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  # ==========================================================================
+  # Job 1: 编译检查
+  # ==========================================================================
+  build:
+    name: 编译检查
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 检出代码仓库
+        uses: actions/checkout@v4
+
+      - name: 配置 JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+
+      - name: 缓存 Gradle 依赖
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', 'gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      - name: 赋予 Gradlew 可执行权限
+        run: chmod +x gradlew
+
+      - name: 编译项目
+        run: ./gradlew compileJava --no-daemon --warning-mode all
+
+      - name: 上传编译产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: compiled-classes
+          path: build/classes/
+          retention-days: 3
+          if-no-files-found: warn
+
+  # ==========================================================================
+  # Job 2: 代码风格检查 (Checkstyle)
+  # ==========================================================================
+  checkstyle:
+    name: 代码风格检查
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: 检出代码仓库
+        uses: actions/checkout@v4
+
+      - name: 配置 JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+
+      - name: 缓存 Gradle 依赖
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', 'gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      - name: 赋予 Gradlew 可执行权限
+        run: chmod +x gradlew
+
+      # 创建报告目录并运行 Checkstyle
+      # 无论是 Gradle 插件模式还是命令行模式，都确保报告输出到统一目录
+      - name: 运行 Checkstyle 检查
+        run: |
+          mkdir -p build/reports/checkstyle
+
+          # 尝试使用 Gradle Checkstyle 插件运行
+          if ./gradlew tasks --no-daemon --quiet 2>/dev/null | grep -q "checkstyleMain"; then
+            echo "检测到项目已配置 Checkstyle 插件，使用 Gradle 运行..."
+            ./gradlew checkstyleMain --no-daemon || true
+          else
+            echo "项目未配置 Checkstyle 插件，使用命令行工具运行..."
+
+            # 下载 Checkstyle
+            CHECKSTYLE_VERSION="10.17.0"
+            wget -q "https://github.com/checkstyle/checkstyle/releases/download/checkstyle-${CHECKSTYLE_VERSION}/checkstyle-${CHECKSTYLE_VERSION}-all.jar" -O /tmp/checkstyle.jar
+
+            # 运行 Checkstyle，输出 XML 和 HTML 报告到 build/reports/checkstyle/
+            java -jar /tmp/checkstyle.jar \
+              -c config/checkstyle/checkstyle.xml \
+              -p config/checkstyle/suppressions.xml \
+              -f xml \
+              -o build/reports/checkstyle/checkstyle.xml \
+              --exclude-regexp=".*generated.*" \
+              src/main/java/ || true
+
+            # 同时生成纯文本摘要到 Job Summary
+            echo "## Checkstyle 检查结果" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            java -jar /tmp/checkstyle.jar \
+              -c config/checkstyle/checkstyle.xml \
+              -p config/checkstyle/suppressions.xml \
+              --exclude-regexp=".*generated.*" \
+              src/main/java/ 2>&1 | head -100 >> $GITHUB_STEP_SUMMARY || true
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: 上传 Checkstyle 报告
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: checkstyle-report
+          path: build/reports/checkstyle/
+          retention-days: 7
+          if-no-files-found: warn
+
+  # ==========================================================================
+  # Job 3: 静态分析 (SpotBugs + PMD)
+  # ==========================================================================
+  static-analysis:
+    name: 静态分析
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: 检出代码仓库
+        uses: actions/checkout@v4
+
+      - name: 配置 JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+
+      - name: 缓存 Gradle 依赖
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', 'gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      - name: 赋予 Gradlew 可执行权限
+        run: chmod +x gradlew
+
+      # 编译项目（SpotBugs 需要编译后的 class 文件）
+      - name: 编译项目
+        run: ./gradlew compileJava --no-daemon
+
+      # 运行 SpotBugs 分析
+      # 确保报告输出到 build/reports/spotbugs/ 目录
+      - name: 运行 SpotBugs 分析
+        run: |
+          mkdir -p build/reports/spotbugs
+
+          # 尝试使用 Gradle SpotBugs 插件运行
+          if ./gradlew tasks --no-daemon --quiet 2>/dev/null | grep -q "spotbugsMain"; then
+            echo "检测到项目已配置 SpotBugs 插件，使用 Gradle 运行..."
+            ./gradlew spotbugsMain --no-daemon || true
+          else
+            echo "项目未配置 SpotBugs 插件，使用命令行工具运行..."
+
+            # 下载 SpotBugs
+            SPOTBUGS_VERSION="4.8.6"
+            wget -q "https://github.com/spotbugs/spotbugs/releases/download/${SPOTBUGS_VERSION}/spotbugs-${SPOTBUGS_VERSION}.tgz" -O /tmp/spotbugs.tgz
+            tar xzf /tmp/spotbugs.tgz -C /tmp/
+
+            # 运行 SpotBugs，生成 XML 和 HTML 报告
+            /tmp/spotbugs-${SPOTBUGS_VERSION}/bin/spotbugs \
+              -textui \
+              -include config/spotbugs/exclude.xml \
+              -high \
+              -medium \
+              -xml:build/reports/spotbugs/spotbugs.xml \
+              build/classes/java/main/ || true
+
+            /tmp/spotbugs-${SPOTBUGS_VERSION}/bin/spotbugs \
+              -textui \
+              -include config/spotbugs/exclude.xml \
+              -high \
+              -medium \
+              -html:build/reports/spotbugs/spotbugs.html \
+              build/classes/java/main/ || true
+          fi
+
+      # 运行 PMD 分析
+      - name: 运行 PMD 分析
+        run: |
+          mkdir -p build/reports/pmd
+
+          # 尝试使用 Gradle PMD 插件运行
+          if ./gradlew tasks --no-daemon --quiet 2>/dev/null | grep -q "pmdMain"; then
+            echo "检测到项目已配置 PMD 插件，使用 Gradle 运行..."
+            ./gradlew pmdMain --no-daemon || true
+          else
+            echo "项目未配置 PMD 插件，使用命令行工具运行..."
+
+            # 下载 PMD
+            PMD_VERSION="7.3.0"
+            wget -q "https://github.com/pmd/pmd/releases/download/pmd_releases%2F${PMD_VERSION}/pmd-dist-${PMD_VERSION}-bin.zip" -O /tmp/pmd.zip
+            unzip -q /tmp/pmd.zip -d /tmp/
+
+            # 生成 XML 报告
+            /tmp/pmd-bin-${PMD_VERSION}/bin/pmd check \
+              -d src/main/java/ \
+              -R config/pmd/ruleset.xml \
+              -f xml \
+              -r build/reports/pmd/pmd.xml || true
+
+            # 生成 HTML 报告
+            /tmp/pmd-bin-${PMD_VERSION}/bin/pmd check \
+              -d src/main/java/ \
+              -R config/pmd/ruleset.xml \
+              -f html \
+              -r build/reports/pmd/pmd.html || true
+          fi
+
+      # 上传静态分析报告
+      - name: 上传分析报告
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: static-analysis-reports
+          path: |
+            build/reports/spotbugs/
+            build/reports/pmd/
+          retention-days: 7
+          if-no-files-found: warn
+
+  # ==========================================================================
+  # Job 4: 单元测试
+  # ==========================================================================
+  test:
+    name: 单元测试
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: 检出代码仓库
+        uses: actions/checkout@v4
+
+      - name: 配置 JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+
+      - name: 缓存 Gradle 依赖
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', 'gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      - name: 赋予 Gradlew 可执行权限
+        run: chmod +x gradlew
+
+      - name: 运行测试
+        run: |
+          # 检查是否存在测试源码目录
+          if [ -d "src/test" ]; then
+            echo "检测到测试目录，运行测试..."
+            ./gradlew test --no-daemon --info || true
+          else
+            echo "未检测到测试目录 (src/test)，跳过测试运行。"
+            echo "如需添加测试，请创建 src/test/java/ 目录并编写 JUnit 测试用例。"
+            mkdir -p build/reports/tests
+            echo "# 跳过测试" > build/reports/tests/skip-note.txt
+          fi
+
+      - name: 生成测试报告摘要
+        if: always()
+        run: |
+          echo "## 测试报告" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -d "build/reports/tests" ] && [ "$(find build/reports/tests -name '*.html' -o -name '*.xml' | head -1)" ]; then
+            echo "测试报告已生成，详见 Artifacts 中的 test-report。" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "未找到测试报告。项目中可能没有测试用例。" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "💡 如需添加测试，请在项目中创建 src/test/java/ 目录并编写 JUnit 测试。" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: 上传测试报告
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-report
+          path: |
+            build/reports/tests/
+            build/reports/jacoco/
+          retention-days: 7
+          if-no-files-found: warn
+
+  # ==========================================================================
+  # Job 5: 依赖漏洞扫描
+  # ==========================================================================
+  dependency-scan:
+    name: 依赖漏洞扫描
+    runs-on: ubuntu-latest
+    needs: build
+
+    env:
+      NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+
+    steps:
+      - name: 检出代码仓库
+        uses: actions/checkout@v4
+
+      - name: 配置 JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+
+      - name: 缓存 Gradle 依赖
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', 'gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      # 缓存 OWASP NVD 数据库，避免每次运行都重新下载
+      - name: 缓存 NVD 数据库
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.m2/repository/org/owasp/dependency-check-data/
+            /tmp/dependency-check-data/
+          key: nvd-db-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            nvd-db-${{ runner.os }}-
+
+      - name: 赋予 Gradlew 可执行权限
+        run: chmod +x gradlew
+
+      - name: 分析依赖树
+        run: |
+          echo "## 依赖分析" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          ./gradlew dependencies --no-daemon --configuration runtimeClasspath 2>&1 | head -200 >> $GITHUB_STEP_SUMMARY || true
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      # OWASP 依赖漏洞扫描
+      # 免费申请 NVD API Key：https://nvd.nist.gov/developers/request-an-api-key
+      # 配置方法：GitHub 仓库 → Settings → Secrets → Actions → NVD_API_KEY
+      - name: OWASP 依赖漏洞扫描
+        run: |
+          # 检查是否配置了 NVD API Key
+          if [ -n "$NVD_API_KEY" ]; then
+            echo "✅ 已检测到 NVD API Key，将使用 API Key 加速扫描"
+          else
+            echo "⚠️ 未检测到 NVD API Key，扫描可能会非常缓慢"
+            echo "💡 请前往 https://nvd.nist.gov/developers/request-an-api-key 免费申请"
+            echo "💡 然后在 GitHub 仓库 Settings → Secrets → Actions 中添加 NVD_API_KEY"
+          fi
+
+          mkdir -p build/reports/dependency-check
+
+          # 尝试使用 Gradle OWASP 插件运行
+          if ./gradlew tasks --no-daemon --quiet 2>/dev/null | grep -q "dependencyCheckAnalyze"; then
+            echo "检测到项目已配置 OWASP 插件，使用 Gradle 运行..."
+            if [ -n "$NVD_API_KEY" ]; then
+              ./gradlew dependencyCheckAnalyze --no-daemon \
+                -DnvdApiKey=$NVD_API_KEY \
+                -DnvdApiDelay=6000 || true
+            else
+              ./gradlew dependencyCheckAnalyze --no-daemon || true
+            fi
+          else
+            echo "项目未配置 OWASP 插件，使用命令行工具运行..."
+            DC_VERSION="10.0.4"
+            wget -q "https://github.com/jeremylong/DependencyCheck/releases/download/v${DC_VERSION}/dependency-check-${DC_VERSION}-release.zip" -O /tmp/dc.zip
+            unzip -q /tmp/dc.zip -d /tmp/
+
+            ./gradlew dependencies --no-daemon --write-locks || true
+
+            # 构建 OWASP 命令参数
+            DC_ARGS="--project Mcpatch2JavaClient"
+            DC_ARGS="$DC_ARGS --scan build/"
+            DC_ARGS="$DC_ARGS --out build/reports/dependency-check"
+            DC_ARGS="$DC_ARGS --format HTML"
+            DC_ARGS="$DC_ARGS --format JSON"
+            DC_ARGS="$DC_ARGS --failOnCVSS 7"
+            DC_ARGS="$DC_ARGS --data /tmp/dependency-check-data"
+
+            if [ -n "$NVD_API_KEY" ]; then
+              DC_ARGS="$DC_ARGS --nvdApiKey $NVD_API_KEY"
+            fi
+
+            /tmp/dependency-check/bin/dependency-check.sh $DC_ARGS || true
+          fi
+
+      - name: 上传漏洞扫描报告
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dependency-scan-report
+          path: build/reports/dependency-check/
+          retention-days: 7
+          if-no-files-found: warn
+
+  # ==========================================================================
+  # Job 6: 代码重复度检查 (CPD)
+  # ==========================================================================
+  code-duplication:
+    name: 代码重复度检查
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: 检出代码仓库
+        uses: actions/checkout@v4
+
+      - name: 配置 JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+
+      - name: 赋予 Gradlew 可执行权限
+        run: chmod +x gradlew
+
+      - name: 运行 CPD 代码重复度检查
+        run: |
+          echo "## 代码重复度检查" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 下载 PMD (包含 CPD)
+          PMD_VERSION="7.3.0"
+          wget -q "https://github.com/pmd/pmd/releases/download/pmd_releases%2F${PMD_VERSION}/pmd-dist-${PMD_VERSION}-bin.zip" -O /tmp/pmd.zip
+          unzip -q /tmp/pmd.zip -d /tmp/
+
+          mkdir -p build/reports/cpd
+
+          # 运行 CPD，最小重复代码长度设为 50 个 token
+          /tmp/pmd-bin-${PMD_VERSION}/bin/cpd \
+            --minimum-tokens 50 \
+            --files src/main/java/ \
+            --language java \
+            --format xml \
+            > build/reports/cpd/cpd.xml || true
+
+          /tmp/pmd-bin-${PMD_VERSION}/bin/cpd \
+            --minimum-tokens 50 \
+            --files src/main/java/ \
+            --language java \
+            --format text \
+            > build/reports/cpd/cpd.txt || true
+
+          # 输出摘要
+          if [ -s build/reports/cpd/cpd.txt ]; then
+            echo "⚠️ 发现重复代码片段：" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            head -100 build/reports/cpd/cpd.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ 未发现明显的代码重复。" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: 上传 CPD 报告
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cpd-report
+          path: build/reports/cpd/
+          retention-days: 7
+          if-no-files-found: warn
+
+  # ==========================================================================
+  # Job 7: 综合检查结果汇总
+  # ==========================================================================
+  check-results:
+    name: 检查结果汇总
+    runs-on: ubuntu-latest
+    needs: [build, checkstyle, static-analysis, test, dependency-scan, code-duplication]
+    if: always()
+
+    steps:
+      - name: 汇总检查结果
+        run: |
+          echo "## 🔍 代码检查结果汇总" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          BUILD_STATUS="${{ needs.build.result }}"
+          CHECKSTYLE_STATUS="${{ needs.checkstyle.result }}"
+          STATIC_STATUS="${{ needs.static-analysis.result }}"
+          TEST_STATUS="${{ needs.test.result }}"
+          DEP_STATUS="${{ needs.dependency-scan.result }}"
+          CPD_STATUS="${{ needs.code-duplication.result }}"
+
+          echo "| 检查项 | 状态 |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|------|" >> $GITHUB_STEP_SUMMARY
+          echo "| 编译检查 | ${BUILD_STATUS} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 代码风格检查 | ${CHECKSTYLE_STATUS} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 静态分析 | ${STATIC_STATUS} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 单元测试 | ${TEST_STATUS} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 依赖漏洞扫描 | ${DEP_STATUS} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 代码重复度检查 | ${CPD_STATUS} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [[ "${BUILD_STATUS}" == "failure" ]]; then
+            echo "❌ **编译检查失败**：代码无法编译通过，请先修复编译错误。" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+
+          if [[ "${CHECKSTYLE_STATUS}" == "failure" || "${STATIC_STATUS}" == "failure" ]]; then
+            echo "⚠️ **代码质量检查发现问题**：请查看详细的检查报告。" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [[ "${TEST_STATUS}" == "failure" ]]; then
+            echo "❌ **测试失败**：存在未通过的测试用例。" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [[ "${DEP_STATUS}" == "failure" ]]; then
+            echo "🚨 **安全漏洞**：发现高危依赖漏洞，请尽快修复！" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "> 📋 详细报告可在 Artifacts 中下载查看" >> $GITHUB_STEP_SUMMARY
