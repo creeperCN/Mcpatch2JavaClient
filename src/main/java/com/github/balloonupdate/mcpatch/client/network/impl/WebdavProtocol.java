@@ -131,6 +131,9 @@ public class WebdavProtocol implements UpdatingServer {
         // 本次文件传输一共累计传输了多少字节
         long downloaded = 0;
 
+        // 标记下载循环是否成功完成（区别于close()异常导致的失败）
+        boolean downloadCompleted = false;
+
         try (ContentLengthInputStream input = response.stream) {
             long contentLength = input.getLength();
 
@@ -165,9 +168,13 @@ public class WebdavProtocol implements UpdatingServer {
                     callback.on(remaining, downloaded, contentLength);
                 }
                 callback.on(0, contentLength, contentLength);
+
+                // 标记下载循环成功完成
+                downloadCompleted = true;
             }
         } catch (IOException e) {
-            if (fallback != null)
+            // 只有下载循环未完成时才调用fallback回退进度
+            if (!downloadCompleted && fallback != null)
                 fallback.on(downloaded);
 
             throw new McpatchBusinessException(e);

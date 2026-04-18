@@ -176,13 +176,18 @@ public class McPatchWindow {
      * 设置版本信息（如 "v1.0.2 → v2.5.0"）
      */
     public void setVersionInfo(String from, String to) {
-        SwingUtilities.invokeLater(() -> {
+        Runnable task = () -> {
             if (from == null || from.isEmpty()) {
                 versionLabel.setText("更新到 " + to);
             } else {
                 versionLabel.setText(from + " \u2192 " + to);
             }
-        });
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            task.run();
+        } else {
+            SwingUtilities.invokeLater(task);
+        }
     }
 
     /**
@@ -193,7 +198,7 @@ public class McPatchWindow {
      * @param totalSize  文件总大小
      */
     public void setFileProgress(String filename, long downloaded, long totalSize) {
-        SwingUtilities.invokeLater(() -> {
+        Runnable task = () -> {
             fileLabel.setText(filename != null ? filename : " ");
             if (totalSize > 0) {
                 int permille = (int) Math.min(1000, downloaded * 1000 / totalSize);
@@ -205,7 +210,12 @@ public class McPatchWindow {
                 fileProgressBar.setString("0.0%");
                 fileProgressLabel.setText(" ");
             }
-        });
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            task.run();
+        } else {
+            SwingUtilities.invokeLater(task);
+        }
     }
 
     /**
@@ -217,7 +227,7 @@ public class McPatchWindow {
      * @param eta        预估剩余时间（如 "31秒"），可为 null
      */
     public void setTotalProgress(long downloaded, long totalBytes, String speed, String eta) {
-        SwingUtilities.invokeLater(() -> {
+        Runnable task = () -> {
             if (totalBytes > 0) {
                 int permille = (int) Math.min(1000, downloaded * 1000 / totalBytes);
                 totalProgressBar.setValue(permille);
@@ -233,7 +243,12 @@ public class McPatchWindow {
                 }
                 totalProgressLabel.setText(sb.toString());
             }
-        });
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            task.run();
+        } else {
+            SwingUtilities.invokeLater(task);
+        }
     }
 
     /**
@@ -243,7 +258,7 @@ public class McPatchWindow {
     public void setPhase(int phase) {
         if (phase == currentPhase) return;
         currentPhase = phase;
-        SwingUtilities.invokeLater(() -> {
+        Runnable task = () -> {
             StringBuilder sb = new StringBuilder("<html>");
             for (int i = 0; i < PHASE_NAMES.length; i++) {
                 if (i > 0) sb.append("&nbsp;&nbsp;");
@@ -260,19 +275,29 @@ public class McPatchWindow {
             }
             sb.append("</html>");
             phaseLabel.setText(sb.toString());
-        });
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            task.run();
+        } else {
+            SwingUtilities.invokeLater(task);
+        }
     }
 
     /**
      * 清空文件进度区域（用于非下载阶段）
      */
     public void clearFileProgress() {
-        SwingUtilities.invokeLater(() -> {
+        Runnable task = () -> {
             fileLabel.setText(" ");
             fileProgressBar.setValue(0);
             fileProgressBar.setString("0.0%");
             fileProgressLabel.setText(" ");
-        });
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            task.run();
+        } else {
+            SwingUtilities.invokeLater(task);
+        }
     }
 
     // ===== 向后兼容方法 =====

@@ -323,8 +323,11 @@ public class ParallelDownloader {
                     }
                 },
                 (fallback) -> {
-                    // 进度回退
-                    totalDownloaded.addAndGet(-bytesCounter.get());
+                    // 进度回退：从totalDownloaded中扣减本次下载已报告的字节
+                    long toSubtract = bytesCounter.get();
+                    totalDownloaded.addAndGet(-toSubtract);
+                    // 重置bytesCounter，避免重试时累积旧值导致重复扣减
+                    bytesCounter.set(0);
 
                     if (window != null) {
                         final long dl = totalDownloaded.get();
@@ -350,9 +353,10 @@ public class ParallelDownloader {
             forceUpdateTotalProgress();
 
             // 显示校验状态（仅焦点文件）
-            String verifyLabel = filename + " (校验中)";
+            // 注意：校验阶段使用原始filename做焦点判断，而非verifyLabel，
+            // 因为focusFilename存储的是原始文件名（不含"(校验中)"后缀）
             if (window != null && isFocusFile(filename)) {
-                final String displayName = getDisplayName(verifyLabel);
+                final String displayName = getDisplayName(filename) + " (校验中)";
                 SwingUtilities.invokeLater(() -> {
                     window.setFileProgress(displayName, 0, f.length);
                 });
@@ -362,7 +366,7 @@ public class ParallelDownloader {
             if (f.sha256 != null && !f.sha256.isEmpty()) {
                 // 优先使用 SHA-256 校验
                 String actualSHA256 = HashUtility.calculateSHA256WithProgress(f.tempPath, f.length,
-                        (bytesRead, total) -> updateVerifyProgress(verifyLabel, bytesRead, total));
+                        (bytesRead, total) -> updateVerifyProgress(filename, bytesRead, total));
 
                 if (!actualSHA256.equals(f.sha256)) {
                     throw new McpatchBusinessException(
@@ -372,7 +376,7 @@ public class ParallelDownloader {
             } else {
                 // 服务端未提供 SHA-256 时，回退到 CRC 校验
                 String hash = HashUtility.calculateHashWithProgress(f.tempPath, f.length,
-                        (bytesRead, total) -> updateVerifyProgress(verifyLabel, bytesRead, total));
+                        (bytesRead, total) -> updateVerifyProgress(filename, bytesRead, total));
 
                 if (!hash.equals(f.hash)) {
                     throw new McpatchBusinessException(
@@ -385,6 +389,7 @@ public class ParallelDownloader {
 
     /**
      * 更新校验进度（带限频，同时更新单文件进度和总进度）
+     * @param filename 原始文件名（不含后缀），用于焦点判断
      */
     private void updateVerifyProgress(String filename, long bytesRead, long totalFileBytes) {
         if (window == null) return;
@@ -398,7 +403,8 @@ public class ParallelDownloader {
         final long dl = totalDownloaded.get();
         final String speedStr = speed.sampleSpeed2();
         final boolean isFocus = isFocusFile(filename);
-        final String displayName = getDisplayName(filename);
+        // 校验阶段的显示名称附加"(校验中)"后缀
+        final String displayName = getDisplayName(filename) + " (校验中)";
 
         SwingUtilities.invokeLater(() -> {
             // 仅焦点文件更新单文件进度
