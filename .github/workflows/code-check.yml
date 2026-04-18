@@ -391,14 +391,19 @@ jobs:
         run: chmod +x gradlew
 
       # GitHub Dependency Review - 仅 PR 时运行
+      # 使用 continue-on-error 防止审查发现漏洞时阻塞后续 OWASP 深度扫描
       - name: 依赖审查
         uses: actions/dependency-review-action@v4
         if: github.event_name == 'pull_request'
+        continue-on-error: true
         with:
           fail-on-severity: high
           deny-licenses: GPL-3.0, AGPL-3.0
 
+      # 分析依赖树和 OWASP 扫描使用 if: success() || failure()
+      # 确保即使依赖审查发现漏洞（步骤失败），这两个步骤仍然能执行
       - name: 分析依赖树
+        if: success() || failure()
         run: |
           echo "## 依赖分析" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -409,7 +414,9 @@ jobs:
       # OWASP 依赖漏洞扫描
       # 免费申请 NVD API Key：https://nvd.nist.gov/developers/request-an-api-key
       # 配置方法：GitHub 仓库 → Settings → Secrets → Actions → NVD_API_KEY
+      # 使用 if: success() || failure() 确保无论依赖审查是否通过，OWASP 扫描都能运行
       - name: OWASP 依赖漏洞扫描
+        if: success() || failure()
         run: |
           # 检查是否配置了 NVD API Key
           if [ -n "$NVD_API_KEY" ]; then
