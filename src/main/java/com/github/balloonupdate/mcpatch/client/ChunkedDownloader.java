@@ -131,9 +131,10 @@ public class ChunkedDownloader {
      */
     private void acquireFocus(String filename) {
         synchronized (focusLock) {
-            this.focusFilename = filename;
             long now = System.currentTimeMillis();
-            if (sharedFocusLockTime != null && now - sharedFocusLockTime.get() > FOCUS_LOCK_DURATION) {
+            // 没有焦点文件，或者焦点锁定时间已过，可以抢占
+            if (focusFilename == null || now - sharedFocusLockTime.get() > FOCUS_LOCK_DURATION) {
+                this.focusFilename = filename;
                 sharedFocusLockTime.set(now);
             }
         }
@@ -141,10 +142,11 @@ public class ChunkedDownloader {
 
     /**
      * 判断此文件是否是焦点文件
-     * ChunkedDownloader 处理的文件通常是大文件，总是作为焦点显示
      */
     private boolean isFocusFile(String filename) {
-        return true;
+        synchronized (focusLock) {
+            return filename.equals(focusFilename);
+        }
     }
 
     /**

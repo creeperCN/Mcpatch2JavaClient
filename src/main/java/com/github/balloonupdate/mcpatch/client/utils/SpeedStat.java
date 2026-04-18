@@ -52,8 +52,8 @@ public class SpeedStat {
             return 0;
         }
 
-        // 计算平均速度
-        return totalBytes / delta * 1000;
+        // 计算平均速度（先乘后除，避免整数截断精度损失）
+        return totalBytes * 1000 / delta;
     }
 
     // 增加了新的字节数

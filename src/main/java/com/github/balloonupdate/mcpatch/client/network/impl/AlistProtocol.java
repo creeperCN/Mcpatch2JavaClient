@@ -228,14 +228,19 @@ public class AlistProtocol implements UpdatingServer {
     @Override
     public void close() throws Exception {
         cache.clear();
+        // 关闭 OkHttpClient 的连接池和调度器，释放资源
+        client.dispatcher().executorService().shutdown();
+        client.connectionPool().evictAll();
     }
 
     /**
      * 获取文件的原始下载链接
      */
     String fetchDownloadLink(String filename) throws McpatchBusinessException {
-        if (cache.containsKey(filename))
-            return cache.get(filename);
+        // 使用 get + null check 替代 containsKey + get，避免 TOCTOU 竞态
+        String cached = cache.get(filename);
+        if (cached != null)
+            return cached;
 
         // 构建 Alist API 请求路径
         // 将 baseUrl + filename 组合成完整 URL 后提取路径部分
@@ -253,8 +258,11 @@ public class AlistProtocol implements UpdatingServer {
         // 构建 API URL
         String apiUrl = baseUrl + "api/fs/get";
 
-        // 修复：JSON body 需要用 {} 包裹
-        String bodyText = String.format("{\"path\": \"%s\",\"password\": \"\"}", alistPath);
+        // 使用 JSONObject 构建 JSON body，防止路径中包含特殊字符导致 JSON 注入
+        JSONObject bodyJson = new JSONObject();
+        bodyJson.put("path", alistPath);
+        bodyJson.put("password", "");
+        String bodyText = bodyJson.toString();
         RequestBody body = RequestBody.create(bodyText, MediaType.get("application/json"));
 
         Request.Builder reqBuilder = new Request.Builder()

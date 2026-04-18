@@ -52,7 +52,7 @@ public class McPatchWindow {
 
     public OnWindowClosing onWindowClosing;
 
-    private int currentPhase = -1;
+    private volatile int currentPhase = -1;
 
     private static final String[] PHASE_NAMES = {"检查更新", "下载元数据", "下载文件", "应用更新", "完成"};
 
@@ -303,25 +303,47 @@ public class McPatchWindow {
     // ===== 向后兼容方法 =====
 
     public void setTitleText(String value) {
-        window.setTitle(value);
+        Runnable task = () -> window.setTitle(value);
+        if (SwingUtilities.isEventDispatchThread()) {
+            task.run();
+        } else {
+            SwingUtilities.invokeLater(task);
+        }
     }
 
     public void show() {
-        window.pack();
-        Dimension prefSize = window.getPreferredSize();
-        int w = Math.max(prefSize.width + 30, 480);
-        int h = Math.max(prefSize.height + 15, 310);
-        window.setSize(w, h);
-        window.setLocationRelativeTo(null);
-        window.setVisible(true);
+        Runnable task = () -> {
+            window.pack();
+            Dimension prefSize = window.getPreferredSize();
+            int w = Math.max(prefSize.width + 30, 480);
+            int h = Math.max(prefSize.height + 15, 310);
+            window.setSize(w, h);
+            window.setLocationRelativeTo(null);
+            window.setVisible(true);
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            task.run();
+        } else {
+            SwingUtilities.invokeLater(task);
+        }
     }
 
     public void hide() {
-        window.setVisible(false);
+        Runnable task = () -> window.setVisible(false);
+        if (SwingUtilities.isEventDispatchThread()) {
+            task.run();
+        } else {
+            SwingUtilities.invokeLater(task);
+        }
     }
 
     public void destroy() {
-        window.dispose();
+        Runnable task = () -> window.dispose();
+        if (SwingUtilities.isEventDispatchThread()) {
+            task.run();
+        } else {
+            SwingUtilities.invokeLater(task);
+        }
     }
 
     /**

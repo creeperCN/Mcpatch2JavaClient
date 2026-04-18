@@ -154,29 +154,29 @@ public class HashUtility {
 }
 
 class Crc64_XZ {
-    private final long polynomial = 0x42f0e1eba9ea3693L;
-    private final long initialValue = 0xffffffffffffffffL;
-    private final long finalXorValue = 0xffffffffffffffffL;
-    private final boolean reflectInput = true;
-    private final boolean reflectOutput = true;
+    private static final long POLYNOMIAL = 0x42f0e1eba9ea3693L;
+    private static final long INITIAL_VALUE = 0xffffffffffffffffL;
+    private static final long FINAL_XOR_VALUE = 0xffffffffffffffffL;
+    private static final boolean REFLECT_INPUT = true;
+    private static final boolean REFLECT_OUTPUT = true;
 
-    private long crc = initialValue;
+    private long crc = INITIAL_VALUE;
 
     public void reset() {
-        crc = initialValue;
+        crc = INITIAL_VALUE;
     }
 
     public void update(byte[] data, int offset, int len) {
-        for (int x = offset; x < len; x++) {
+        for (int x = offset; x < offset + len; x++) {
             byte b = data[x];
             long value = b & 0xFF;
-            if (reflectInput) {
+            if (REFLECT_INPUT) {
                 value = reflect(value, 8);
             }
             crc ^= (value << 56);
             for (int i = 0; i < 8; i++) {
                 if ((crc & 0x8000000000000000L) != 0) {
-                    crc = (crc << 1) ^ polynomial;
+                    crc = (crc << 1) ^ POLYNOMIAL;
                 } else {
                     crc <<= 1;
                 }
@@ -186,10 +186,10 @@ class Crc64_XZ {
 
     public long getValue() {
         long result = crc;
-        if (reflectOutput) {
+        if (REFLECT_OUTPUT) {
             result = reflect(result, 64);
         }
-        return result ^ finalXorValue;
+        return result ^ FINAL_XOR_VALUE;
     }
 
     private long reflect(long value, int bits) {
@@ -204,29 +204,29 @@ class Crc64_XZ {
 }
 
 class Crc16_IBM_SDLC {
-    private final int polynomial = 0x1021;
-    private final int initialValue = 0xffff;
-    private final int finalXorValue = 0xffff;
-    private final boolean reflectInput = true;
-    private final boolean reflectOutput = true;
+    private static final int POLYNOMIAL = 0x1021;
+    private static final int INITIAL_VALUE = 0xffff;
+    private static final int FINAL_XOR_VALUE = 0xffff;
+    private static final boolean REFLECT_INPUT = true;
+    private static final boolean REFLECT_OUTPUT = true;
 
-    private int crc = initialValue;
+    private int crc = INITIAL_VALUE;
 
     public void reset() {
-        crc = initialValue;
+        crc = INITIAL_VALUE;
     }
 
     public void update(byte[] data, int offset, int len) {
-        for (int x = offset; x < len; x++) {
+        for (int x = offset; x < offset + len; x++) {
             byte b = data[x];
             int value = b & 0xFF;
-            if (reflectInput) {
+            if (REFLECT_INPUT) {
                 value = reflect(value, 8);
             }
             crc ^= (value << 8);
             for (int i = 0; i < 8; i++) {
                 if ((crc & 0x8000) != 0) {
-                    crc = (crc << 1) ^ polynomial;
+                    crc = (crc << 1) ^ POLYNOMIAL;
                 } else {
                     crc <<= 1;
                 }
@@ -236,10 +236,10 @@ class Crc16_IBM_SDLC {
 
     public int getValue() {
         int result = crc;
-        if (reflectOutput) {
+        if (REFLECT_OUTPUT) {
             result = reflect(result, 16);
         }
-        return (result ^ finalXorValue) & 0xFFFF;
+        return (result ^ FINAL_XOR_VALUE) & 0xFFFF;
     }
 
     private int reflect(int value, int bits) {
