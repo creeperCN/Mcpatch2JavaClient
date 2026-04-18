@@ -230,8 +230,8 @@ public class ChunkedDownloader {
         // 6. 清理临时分片文件
         cleanupChunks(chunks);
 
-        // 7. 显示文件完成
-        if (window != null) {
+        // 7. 显示文件完成（仅焦点文件）
+        if (window != null && isFocusFile(filename)) {
             final String displayName = getDisplayName(filename);
             SwingUtilities.invokeLater(() -> {
                 window.setFileProgress(displayName, file.length, file.length);
@@ -299,8 +299,8 @@ public class ChunkedDownloader {
             return t;
         });
 
-        // 初始化单文件进度显示
-        if (window != null) {
+        // 初始化单文件进度显示（仅焦点文件）
+        if (window != null && isFocusFile(filename)) {
             final String displayName = getDisplayName(filename);
             SwingUtilities.invokeLater(() -> {
                 window.setFileProgress(displayName, 0, file.length);
@@ -447,8 +447,8 @@ public class ChunkedDownloader {
 
         String mergeLabel = filename + " (合并中)";
 
-        // 更新单文件进度条为合并状态
-        if (window != null) {
+        // 更新单文件进度条为合并状态（仅焦点文件）
+        if (window != null && isFocusFile(filename)) {
             final String displayName = getDisplayName(mergeLabel);
             SwingUtilities.invokeLater(() -> {
                 window.setFileProgress(displayName, 0, file.length);
@@ -492,9 +492,9 @@ public class ChunkedDownloader {
                     totalMerged += transferred;
                 }
 
-                // 更新合并进度
+                // 更新合并进度（仅焦点文件）
                 final long merged = totalMerged;
-                if (window != null) {
+                if (window != null && isFocusFile(filename)) {
                     final String displayName = getDisplayName(mergeLabel);
                     SwingUtilities.invokeLater(() -> {
                         window.setFileProgress(displayName, merged, file.length);
@@ -533,8 +533,8 @@ public class ChunkedDownloader {
 
         String verifyLabel = filename + " (校验中)";
 
-        // 更新单文件进度条为校验状态
-        if (window != null) {
+        // 更新单文件进度条为校验状态（仅焦点文件）
+        if (window != null && isFocusFile(filename)) {
             final String displayName = getDisplayName(verifyLabel);
             SwingUtilities.invokeLater(() -> {
                 window.setFileProgress(displayName, 0, file.length);
@@ -587,8 +587,12 @@ public class ChunkedDownloader {
         final String speedStr = speed.sampleSpeed2();
         final String displayName = getDisplayName(filename);
 
+        final boolean isFocus = isFocusFile(filename);
+
         SwingUtilities.invokeLater(() -> {
-            window.setFileProgress(displayName, br, tb);
+            if (isFocus) {
+                window.setFileProgress(displayName, br, tb);
+            }
             // 校验期间也要更新总进度，避免UI冻结
             // 重新读取 totalDownloaded 以避免 EDT 队列中旧值覆盖新值
             long currentDl = totalDownloaded.get();
@@ -660,11 +664,15 @@ public class ChunkedDownloader {
         final long fd = fileDownloaded;
         final String displayName = getDisplayName(filename);
 
+        // 仅焦点文件更新单文件进度，避免多线程闪烁
+        final boolean isFocus = isFocusFile(filename);
+
         SwingUtilities.invokeLater(() -> {
-            // 更新单文件进度
-            window.setFileProgress(displayName, fd, fileSize);
-            // 更新总进度 + 速度 + ETA
-            // 重新读取 totalDownloaded 以避免 EDT 队列中旧值覆盖新值
+            // 仅焦点文件更新单文件进度，避免多线程闪烁
+            if (isFocus) {
+                window.setFileProgress(displayName, fd, fileSize);
+            }
+            // 总进度始终更新（重新读取 totalDownloaded 以避免 EDT 队列中旧值覆盖新值）
             long currentDl = totalDownloaded.get();
             String eta = calculateETA(currentDl, totalBytes);
             window.setTotalProgress(currentDl, totalBytes, speedStr, eta);
