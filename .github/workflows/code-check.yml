@@ -770,6 +770,12 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
 
+    # 为 OWASP Dependency-Check 提供环境变量
+    # NVD_API_KEY: 从 GitHub Secrets 读取，加速 NVD 数据库下载
+    # 如果未配置此 Secret，扫描仍然可以运行，但会非常慢
+    env:
+      NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+
     steps:
       - name: 检出代码仓库
         uses: actions/checkout@v4
@@ -789,6 +795,18 @@ jobs:
           key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', 'gradle/wrapper/gradle-wrapper.properties') }}
           restore-keys: |
             gradle-${{ runner.os }}-
+
+      # 缓存 OWASP NVD 数据库，避免每次运行都重新下载
+      # 数据库每天更新一次，缓存可以有效加速扫描
+      - name: 缓存 NVD 数据库
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.m2/repository/org/owasp/dependency-check-data/
+            /tmp/dependency-check-data/
+          key: nvd-db-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            nvd-db-${{ runner.os }}-
 
       - name: 赋予 Gradlew 可执行权限
         run: chmod +x gradlew
@@ -813,12 +831,30 @@ jobs:
           echo '```' >> $GITHUB_STEP_SUMMARY
 
       # 步骤 5.3: 使用 OWASP Dependency-Check 进行漏洞扫描
+      # 重要：需要配置 NVD_API_KEY Secret 才能快速完成扫描
+      # 免费申请 API Key：https://nvd.nist.gov/developers/request-an-api-key
+      # 配置方法：GitHub 仓库 → Settings → Secrets → New repository secret → Name: NVD_API_KEY
       - name: OWASP 依赖漏洞扫描
         run: |
+          # 检查是否配置了 NVD API Key
+          if [ -n "$NVD_API_KEY" ]; then
+            echo "✅ 已检测到 NVD API Key，将使用 API Key 加速扫描"
+          else
+            echo "⚠️ 未检测到 NVD API Key，扫描可能会非常缓慢"
+            echo "💡 请前往 https://nvd.nist.gov/developers/request-an-api-key 免费申请"
+            echo "💡 然后在 GitHub 仓库 Settings → Secrets → Actions 中添加 NVD_API_KEY"
+          fi
+
           # 尝试使用 Gradle OWASP 插件运行
           if ./gradlew tasks --no-daemon --quiet 2>/dev/null | grep -q "dependencyCheckAnalyze"; then
             echo "检测到项目已配置 OWASP 插件，使用 Gradle 运行..."
-            ./gradlew dependencyCheckAnalyze --no-daemon || true
+            if [ -n "$NVD_API_KEY" ]; then
+              ./gradlew dependencyCheckAnalyze --no-daemon \
+                -DnvdApiKey=$NVD_API_KEY \
+                -DnvdApiDelay=6000 || true
+            else
+              ./gradlew dependencyCheckAnalyze --no-daemon || true
+            fi
           else
             echo "项目未配置 OWASP 插件，使用命令行工具运行..."
             # 下载 OWASP Dependency-Check
@@ -831,15 +867,22 @@ jobs:
             # 先生成 Gradle 依赖的 lock 文件
             ./gradlew dependencies --no-daemon --write-locks || true
 
+            # 构建 OWASP 命令参数
+            DC_ARGS="--project Mcpatch2JavaClient"
+            DC_ARGS="$DC_ARGS --scan build/"
+            DC_ARGS="$DC_ARGS --out build/reports/dependency-check"
+            DC_ARGS="$DC_ARGS --format HTML"
+            DC_ARGS="$DC_ARGS --format JSON"
+            DC_ARGS="$DC_ARGS --failOnCVSS 7"
+            DC_ARGS="$DC_ARGS --data /tmp/dependency-check-data"
+
+            # 如果有 NVD API Key，添加到参数中以加速下载
+            if [ -n "$NVD_API_KEY" ]; then
+              DC_ARGS="$DC_ARGS --nvdApiKey $NVD_API_KEY"
+            fi
+
             # 运行 OWASP Dependency-Check
-            /tmp/dependency-check/bin/dependency-check.sh \
-              --project "Mcpatch2JavaClient" \
-              --scan build/ \
-              --out build/reports/dependency-check \
-              --format HTML \
-              --format JSON \
-              --failOnCVSS 7 \
-              || true
+            /tmp/dependency-check/bin/dependency-check.sh $DC_ARGS || true
           fi
 
       # 步骤 5.4: 上传漏洞扫描报告
