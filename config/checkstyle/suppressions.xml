@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<!DOCTYPE suppressions PUBLIC
+  "-//Checkstyle//DTD SuppressionFilter Configuration 1.2//EN"
+  "https://checkstyle.org/dtds/suppressions_1_2.dtd">
+
+<!--
+  Mcpatch2JavaClient 项目 Checkstyle Suppressions 配置
+  
+  此文件定义了 Checkstyle 检查的豁免规则。
+  合理使用豁免可以避免对某些特殊代码的不必要警告。
+-->
+
+<suppressions>
+  <!-- 对自动生成的文件豁免所有检查 -->
+  <suppress files=".*[\\/]generated[\\/].*" checks=".*"/>
+
+  <!-- 对测试目录中的魔法数字豁免检查（测试中常用硬编码数字） -->
+  <suppress files=".*[\\/]src[\\/]test[\\/].*" checks="MagicNumber"/>
+
+  <!-- 对测试目录中的行宽适度放宽 -->
+  <suppress files=".*[\\/]src[\\/]test[\\/].*" checks="LineLength"/>
+
+  <!-- 对 Main 类豁免方法长度检查（入口类通常包含大量逻辑） -->
+  <suppress files=".*Main\.java" checks="MethodLength"/>
+
+  <!-- 对 Work 类豁免方法长度检查（核心工作类可能较长） -->
+  <suppress files=".*Work\.java" checks="MethodLength"/>
+
+  <!-- 对配置类豁免可见性检查 -->
+  <suppress files=".*Config.*\.java" checks="VisibilityModifier"/>
+</suppressions>

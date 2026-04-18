@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FindBugsFilter>
+
+  <!--
+    Mcpatch2JavaClient 项目 SpotBugs 排除配置
+    
+    此文件定义了 SpotBugs 分析的排除规则。
+    合理使用排除可以减少误报，专注于真正重要的问题。
+  -->
+
+  <!-- 排除测试代码中的某些警告 -->
+  <Match>
+    <Source name="~.*Test\.java"/>
+    <Bug code="UR,UMLE"/>
+  </Match>
+
+  <!-- 排除由不可变对象引起的 EI_EXPOSE_REP2 警告 -->
+  <Match>
+    <Bug pattern="EI_EXPOSE_REP2"/>
+    <Priority value="2"/>
+  </Match>
+
+  <!-- 对 Main 类内部类豁免 SIC_INNER_SHOULD_BE_STATIC -->
+  <Match>
+    <Class name="~.*\.Main\$.*"/>
+    <Bug pattern="SIC_INNER_SHOULD_BE_STATIC"/>
+  </Match>
+
+  <!-- 对并行下载器豁免部分并发警告（该类本身处理并发） -->
+  <Match>
+    <Class name="~.*\.ParallelDownloader"/>
+    <Bug pattern="IS2_INCONSISTENT_SYNC"/>
+  </Match>
+
+  <!-- 排除低优先级警告 -->
+  <Match>
+    <Priority value="3"/>
+  </Match>
+
+</FindBugsFilter>

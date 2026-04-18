@@ -1,0 +1,253 @@
+<?xml version="1.0"?>
+<!DOCTYPE module PUBLIC
+  "-//Checkstyle//DTD Checkstyle Configuration 1.3//EN"
+  "https://checkstyle.org/dtds/configuration_1_3.dtd">
+
+<!--
+  Mcpatch2JavaClient 项目 Checkstyle 配置
+  
+  基于规范：Google Java Style Guide（有适当调整）
+  编码风格：UTF-8
+  缩进方式：4 空格
+  行宽限制：120 字符
+  
+  规则分类：
+    1. 注释检查 - 确保 Javadoc 质量
+    2. 命名规范 - 统一命名风格
+    3. 导入检查 - 保持导入整洁
+    4. 代码大小 - 防止方法过长
+    5. 代码风格 - 统一编码风格
+    6. 空格检查 - 保持代码格式
+    7. 修饰符检查 - 规范修饰符使用
+    8. 代码块检查 - 防止常见错误
+    9. 设计检查 - 避免设计反模式
+    10. 其他检查 - 魔法数字等
+-->
+
+<module name="Checker">
+  <!-- 字符编码 -->
+  <property name="charset" value="UTF-8"/>
+
+  <!-- 检查文件末尾是否有换行符 -->
+  <module name="NewlineAtEndOfFile"/>
+
+  <!-- 检查文件中是否含有 Tab 字符（推荐使用空格） -->
+  <module name="FileTabCharacter">
+    <property name="eachLine" value="true"/>
+  </module>
+
+  <module name="TreeWalker">
+    <!-- ==================== 注释检查 ==================== -->
+
+    <!-- 检查 Javadoc 格式 -->
+    <module name="JavadocStyle">
+      <property name="checkEmptyJavadoc" value="true"/>
+    </module>
+
+    <!-- ==================== 命名规范检查 ==================== -->
+
+    <!-- 常量命名：全大写，下划线分隔 -->
+    <module name="ConstantName">
+      <property name="format" value="^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$|log|logger"/>
+    </module>
+
+    <!-- 局部变量命名：驼峰命名 -->
+    <module name="LocalVariableName">
+      <property name="format" value="^[a-z][a-zA-Z0-9]*$"/>
+    </module>
+
+    <!-- 成员变量命名：驼峰命名 -->
+    <module name="MemberName">
+      <property name="format" value="^[a-z][a-zA-Z0-9]*$"/>
+    </module>
+
+    <!-- 方法名命名：驼峰命名 -->
+    <module name="MethodName">
+      <property name="format" value="^[a-z][a-zA-Z0-9]*$"/>
+    </module>
+
+    <!-- 包名命名：全小写 -->
+    <module name="PackageName">
+      <property name="format" value="^[a-z]+(\.[a-z][a-z0-9]*)*$"/>
+    </module>
+
+    <!-- 参数名命名：驼峰命名 -->
+    <module name="ParameterName">
+      <property name="format" value="^[a-z][a-zA-Z0-9]*$"/>
+    </module>
+
+    <!-- 静态变量命名：驼峰命名 -->
+    <module name="StaticVariableName">
+      <property name="format" value="^[a-z][a-zA-Z0-9]*$"/>
+    </module>
+
+    <!-- 类/接口命名：大驼峰 -->
+    <module name="TypeName">
+      <property name="format" value="^[A-Z][a-zA-Z0-9]*$"/>
+    </module>
+
+    <!-- ==================== 导入检查 ==================== -->
+
+    <!-- 避免使用通配符导入（如 import java.util.*） -->
+    <module name="AvoidStarImport"/>
+
+    <!-- 避免重复导入 -->
+    <module name="RedundantImport"/>
+
+    <!-- 避免使用未使用的导入 -->
+    <module name="UnusedImports"/>
+
+    <!-- 避免非法导入（如导入 sun.* 包） -->
+    <module name="IllegalImport"/>
+
+    <!-- ==================== 代码大小检查 ==================== -->
+
+    <!-- 方法长度限制：200 行 -->
+    <module name="MethodLength">
+      <property name="max" value="200"/>
+    </module>
+
+    <!-- 参数个数限制：7 个 -->
+    <module name="ParameterNumber">
+      <property name="max" value="7"/>
+    </module>
+
+    <!-- ==================== 代码风格检查 ==================== -->
+
+    <!-- 检查大括号位置（左大括号不换行） -->
+    <module name="LeftCurly"/>
+
+    <!-- 检查右大括号位置 -->
+    <module name="RightCurly"/>
+
+    <!-- 检查空代码块 -->
+    <module name="EmptyBlock"/>
+
+    <!-- 检查 switch 语句中的 default 分支 -->
+    <module name="DefaultComesLast"/>
+
+    <!-- 检查 switch 语句中是否缺少 break/return -->
+    <module name="FallThrough"/>
+
+    <!-- 检查空语句（多余的分号） -->
+    <module name="EmptyStatement"/>
+
+    <!-- 检查是否覆盖了 equals 但没覆盖 hashCode -->
+    <module name="EqualsHashCode"/>
+
+    <!-- 检查是否有简化的布尔表达式 -->
+    <module name="SimplifyBooleanExpression"/>
+
+    <!-- 检查是否有简化的布尔返回 -->
+    <module name="SimplifyBooleanReturn"/>
+
+    <!-- 检查字符串比较是否使用 equals 而非 == -->
+    <module name="StringLiteralEquality"/>
+
+    <!-- 检查嵌套代码块 -->
+    <module name="AvoidNestedBlocks"/>
+
+    <!-- 检查数组类型的风格（Java 风格：String[] args） -->
+    <module name="ArrayTypeStyle"/>
+
+    <!-- ==================== 行宽检查 ==================== -->
+
+    <!-- 行宽限制 120 字符 -->
+    <module name="LineLength">
+      <property name="max" value="120"/>
+      <property name="ignorePattern" value="^package.*|^import.*|a href|href|http://|https://|ftp://"/>
+    </module>
+
+    <!-- ==================== 缩进检查 ==================== -->
+
+    <!-- 缩进检查：4 个空格 -->
+    <module name="Indentation">
+      <property name="basicOffset" value="4"/>
+      <property name="braceAdjustment" value="0"/>
+      <property name="caseIndent" value="4"/>
+      <property name="throwsIndent" value="4"/>
+      <property name="lineWrappingIndentation" value="8"/>
+    </module>
+
+    <!-- ==================== 空格检查 ==================== -->
+
+    <!-- 检查类型转换的空格 -->
+    <module name="TypecastParenPad"/>
+
+    <!-- 检查泛型空格 -->
+    <module name="GenericWhitespace"/>
+
+    <!-- 检查方法调用时的空格 -->
+    <module name="MethodParamPad"/>
+
+    <!-- 检查运算符周围的空格 -->
+    <module name="WhitespaceAround"/>
+
+    <!-- 检查逗号后的空格 -->
+    <module name="WhitespaceAfter"/>
+
+    <!-- ==================== 修饰符检查 ==================== -->
+
+    <!-- 修饰符顺序：public protected private abstract default static final transient volatile synchronized native strictfp -->
+    <module name="ModifierOrder"/>
+
+    <!-- 检查多余的修饰符 -->
+    <module name="RedundantModifier"/>
+
+    <!-- ==================== 代码块检查 ==================== -->
+
+    <!-- 检查 catch 块中是否为空 -->
+    <module name="EmptyCatchBlock">
+      <property name="exceptionVariableName" value="expected|ignore"/>
+    </module>
+
+    <!-- 检查 if/for/while/do 是否总是使用大括号 -->
+    <module name="NeedBraces"/>
+
+    <!-- ==================== 设计检查 ==================== -->
+
+    <!-- 检查接口中是否只包含方法声明 -->
+    <module name="InterfaceIsType"/>
+
+    <!-- 检查类的可见性 -->
+    <module name="VisibilityModifier">
+      <property name="protectedAllowed" value="true"/>
+      <property name="packageAllowed" value="true"/>
+    </module>
+
+    <!-- 检查异常类命名 -->
+    <module name="ClassTypeParameterName">
+      <property name="format" value="^[A-Z][a-zA-Z0-9]*$"/>
+    </module>
+
+    <!-- 检查方法类型参数命名 -->
+    <module name="MethodTypeParameterName">
+      <property name="format" value="^[A-Z][a-zA-Z0-9]*$"/>
+    </module>
+
+    <!-- ==================== 其他检查 ==================== -->
+
+    <!-- 检查是否使用了魔法数字 -->
+    <module name="MagicNumber">
+      <property name="ignoreNumbers" value="-1, 0, 1, 2, 3, 4, 5"/>
+      <property name="ignoreHashCodeMethod" value="true"/>
+      <property name="ignoreAnnotation" value="true"/>
+    </module>
+
+    <!-- 检查尾随注释 -->
+    <module name="TrailingComment"/>
+
+    <!-- 检查是否有多余的 throw 声明 -->
+    <module name="RedundantThrows"/>
+
+    <!-- 检查内部赋值 -->
+    <module name="InnerAssignment"/>
+
+    <!-- 检查 switch 中是否有枚举覆盖所有值 -->
+    <module name="MissingSwitchDefault"/>
+
+    <!-- 检查不必要的括号 -->
+    <module name="UnnecessaryParentheses"/>
+
+  </module>
+</module>

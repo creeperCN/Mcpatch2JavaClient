@@ -1,0 +1,81 @@
+<?xml version="1.0"?>
+<ruleset name="Mcpatch2JavaClient PMD Ruleset"
+  xmlns="http://pmd.sourceforge.net/ruleset/2.0.0"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://pmd.sourceforge.net/ruleset/2.0.0 https://pmd.sourceforge.io/ruleset_2_0_0.xsd">
+
+  <!--
+    Mcpatch2JavaClient 项目 PMD 规则集
+    
+    规则分类：
+      1. 最佳实践 - 确保遵循 Java 编程最佳实践
+      2. 代码风格 - 统一代码风格
+      3. 设计规则 - 避免设计反模式
+      4. 错误处理 - 防止常见编程错误
+      5. 多线程 - 确保线程安全
+      6. 性能 - 提高代码性能
+      7. 安全 - 防止安全漏洞
+  -->
+
+  <description>Mcpatch2JavaClient 项目 PMD 规则集</description>
+
+  <!-- ==================== 最佳实践规则 ==================== -->
+  <rule ref="category/java/bestpractices.xml">
+    <exclude name="JUnitTestContainsTooManyAsserts"/>
+    <exclude name="JUnitAssertionsShouldIncludeMessage"/>
+    <exclude name="ArrayListInsteadOfVector"/>
+  </rule>
+
+  <!-- ==================== 代码风格规则 ==================== -->
+  <rule ref="category/java/codestyle.xml">
+    <exclude name="ClassNamingConventions"/>
+    <exclude name="LinguisticNaming"/>
+    <exclude name="MethodNamingConventions"/>
+    <!-- 放宽变量/方法命名长度限制 -->
+    <exclude name="LongVariable"/>
+    <exclude name="ShortVariable"/>
+    <exclude name="ShortClassName"/>
+    <exclude name="ShortMethodName"/>
+  </rule>
+
+  <!-- ==================== 设计规则 ==================== -->
+  <rule ref="category/java/design.xml">
+    <exclude name="GodClass"/>
+    <exclude name="UseUtilityClass"/>
+    <!-- 放宽方法数量阈值 -->
+    <rule ref="category/java/design.xml/TooManyMethods">
+      <properties>
+        <property name="maxmethods" value="20"/>
+      </properties>
+    </rule>
+    <!-- 放宽对象耦合阈值 -->
+    <rule ref="category/java/design.xml/CouplingBetweenObjects">
+      <properties>
+        <property name="threshold" value="30"/>
+      </properties>
+    </rule>
+  </rule>
+
+  <!-- ==================== 错误处理规则 ==================== -->
+  <rule ref="category/java/errorprone.xml">
+    <exclude name="AvoidLiteralsInIfCondition"/>
+    <exclude name="BeanMembersShouldSerialize"/>
+  </rule>
+
+  <!-- ==================== 多线程规则 ==================== -->
+  <rule ref="category/java/multithreading.xml">
+    <!-- 只保留最重要的多线程规则 -->
+    <exclude name="UseConcurrentHashMap"/>
+    <exclude name="AvoidSynchronizedAtMethodLevel"/>
+  </rule>
+
+  <!-- ==================== 性能规则 ==================== -->
+  <rule ref="category/java/performance.xml">
+    <exclude name="ConsecutiveAppendsShouldReuseBuffer"/>
+    <exclude name="AvoidInstantiatingObjectsInLoops"/>
+  </rule>
+
+  <!-- ==================== 安全规则 ==================== -->
+  <rule ref="category/java/security.xml"/>
+
+</ruleset>
