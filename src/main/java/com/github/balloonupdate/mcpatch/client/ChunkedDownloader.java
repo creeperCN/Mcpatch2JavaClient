@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -50,14 +51,16 @@ public class ChunkedDownloader {
     private final long totalBytes;
     private final SpeedStat speed;
     private final AtomicLong uiTimer;
-    private final ExecutorService executor;
     private final long chunkSize;
     private final int maxChunks;
 
     /**
      * 创建一个分片下载器
      *
-     * @param executor 外部传入的线程池，与 ParallelDownloader 共享
+     * 注意：分片下载器不再使用外部传入的线程池，而是为每个文件的分片下载
+     * 创建独立的线程池，避免与 ParallelDownloader 共享线程池导致死锁。
+     *
+     * @param executor 不再使用，保留参数仅为向后兼容
      */
     public ChunkedDownloader(Servers servers, AppConfig config, McPatchWindow window,
                              AtomicLong totalDownloaded, long totalBytes,
@@ -70,7 +73,6 @@ public class ChunkedDownloader {
         this.totalBytes = totalBytes;
         this.speed = speed;
         this.uiTimer = uiTimer;
-        this.executor = executor;
 
         // 从配置读取或使用默认值
         this.chunkSize = config.chunkSize > 0 ? config.chunkSize : DEFAULT_CHUNK_SIZE;
@@ -176,6 +178,10 @@ public class ChunkedDownloader {
 
     /**
      * 并行下载所有分片
+     *
+     * 使用独立的线程池执行分片下载，避免与 ParallelDownloader 共享线程池导致死锁。
+     * 死锁场景：ParallelDownloader 的所有线程都在 latch.await() 上等待分片完成，
+     * 而分片任务排在同一个线程池的队列中无法获得线程执行，导致永久死锁。
      */
     private void downloadChunks(TempUpdateFile file, List<FileChunk> chunks, String filename)
             throws McpatchBusinessException {
@@ -184,25 +190,41 @@ public class ChunkedDownloader {
         CountDownLatch latch = new CountDownLatch(chunks.size());
         ConcurrentLinkedQueue<ChunkDownloadException> failures = new ConcurrentLinkedQueue<>();
 
-        // 提交所有分片下载任务
-        for (FileChunk chunk : chunks) {
-            executor.submit(() -> {
-                try {
-                    downloadSingleChunk(file, chunk, filename, maxRetries);
-                } catch (Exception e) {
-                    failures.add(new ChunkDownloadException(chunk, e));
-                } finally {
-                    latch.countDown();
-                }
-            });
-        }
+        // 创建独立的分片下载线程池，避免与外部线程池死锁
+        // 线程数 = min(分片数, maxChunks, CPU核心数)，确保不会创建过多线程
+        int chunkThreadCount = Math.min(chunks.size(),
+                Math.min(maxChunks, Runtime.getRuntime().availableProcessors()));
+        chunkThreadCount = Math.max(1, chunkThreadCount);
 
-        // 等待所有分片完成
+        ExecutorService chunkExecutor = Executors.newFixedThreadPool(chunkThreadCount, r -> {
+            Thread t = new Thread(r, "mcpatch-chunk-downloader");
+            t.setDaemon(true);
+            return t;
+        });
+
         try {
-            latch.await();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new McpatchBusinessException("用户打断了更新", e);
+            // 提交所有分片下载任务到独立线程池
+            for (FileChunk chunk : chunks) {
+                chunkExecutor.submit(() -> {
+                    try {
+                        downloadSingleChunk(file, chunk, filename, maxRetries);
+                    } catch (Exception e) {
+                        failures.add(new ChunkDownloadException(chunk, e));
+                    } finally {
+                        latch.countDown();
+                    }
+                });
+            }
+
+            // 等待所有分片完成
+            try {
+                latch.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new McpatchBusinessException("用户打断了更新", e);
+            }
+        } finally {
+            chunkExecutor.shutdown();
         }
 
         // 检查是否有失败的
