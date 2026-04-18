@@ -104,12 +104,16 @@ public class ParallelDownloader {
             throws McpatchBusinessException {
         int poolSize = Math.min(threadCount, files.size());
 
-        // 创建线程池
+        // 创建线程池（复用，共享给 ChunkedDownloader）
         ExecutorService executor = Executors.newFixedThreadPool(poolSize, r -> {
             Thread t = new Thread(r, "mcpatch-downloader-" + round);
             t.setDaemon(true);
             return t;
         });
+
+        // 创建分片下载器（复用线程池）
+        ChunkedDownloader chunkedDownloader = new ChunkedDownloader(
+                servers, config, window, totalDownloaded, totalBytes, speed, uiTimer, executor);
 
         // 失败结果收集（线程安全）
         ConcurrentLinkedQueue<DownloadResult> failures = new ConcurrentLinkedQueue<>();
@@ -120,7 +124,12 @@ public class ParallelDownloader {
             for (TempUpdateFile f : files) {
                 futures.add(executor.submit(() -> {
                     try {
-                        downloadSingleFile(f);
+                        // 判断是否需要分片下载
+                        if (chunkedDownloader.shouldUseChunkedDownload(f)) {
+                            chunkedDownloader.download(f);
+                        } else {
+                            downloadSingleFile(f);
+                        }
                     } catch (Exception e) {
                         failures.add(new DownloadResult(f, e));
                     }

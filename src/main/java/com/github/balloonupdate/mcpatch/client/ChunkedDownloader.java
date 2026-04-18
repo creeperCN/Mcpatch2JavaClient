@@ -1,0 +1,383 @@
+package com.github.balloonupdate.mcpatch.client;
+
+import com.github.balloonupdate.mcpatch.client.config.AppConfig;
+import com.github.balloonupdate.mcpatch.client.data.FileChunk;
+import com.github.balloonupdate.mcpatch.client.data.TempUpdateFile;
+import com.github.balloonupdate.mcpatch.client.exceptions.McpatchBusinessException;
+import com.github.balloonupdate.mcpatch.client.logging.Log;
+import com.github.balloonupdate.mcpatch.client.network.ServerSession;
+import com.github.balloonupdate.mcpatch.client.network.Servers;
+import com.github.balloonupdate.mcpatch.client.ui.McPatchWindow;
+import com.github.balloonupdate.mcpatch.client.utils.BytesUtils;
+import com.github.balloonupdate.mcpatch.client.utils.PathUtility;
+import com.github.balloonupdate.mcpatch.client.utils.SpeedStat;
+
+import javax.swing.*;
+import java.io.IOException;
+import java.nio.channels.FileChannel;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicLong;
+
+/**
+ * 单文件分片多线程下载器
+ * 将大文件分成多个 chunk，使用多线程并行下载，最后合并
+ */
+public class ChunkedDownloader {
+
+    // 默认分片大小：1MB
+    public static final long DEFAULT_CHUNK_SIZE = 1024 * 1024;
+
+    // 默认最大分片数
+    public static final int DEFAULT_MAX_CHUNKS = 16;
+
+    // 最小分片文件大小（小于此大小不分片）：10MB
+    public static final long MIN_CHUNKED_FILE_SIZE = 10 * 1024 * 1024;
+
+    private final Servers servers;
+    private final AppConfig config;
+    private final McPatchWindow window;
+    private final AtomicLong totalDownloaded;
+    private final long totalBytes;
+    private final SpeedStat speed;
+    private final AtomicLong uiTimer;
+    private final ExecutorService executor;
+    private final long chunkSize;
+    private final int maxChunks;
+
+    /**
+     * 创建一个分片下载器
+     *
+     * @param executor 外部传入的线程池，与 ParallelDownloader 共享
+     */
+    public ChunkedDownloader(Servers servers, AppConfig config, McPatchWindow window,
+                             AtomicLong totalDownloaded, long totalBytes,
+                             SpeedStat speed, AtomicLong uiTimer,
+                             ExecutorService executor) {
+        this.servers = servers;
+        this.config = config;
+        this.window = window;
+        this.totalDownloaded = totalDownloaded;
+        this.totalBytes = totalBytes;
+        this.speed = speed;
+        this.uiTimer = uiTimer;
+        this.executor = executor;
+
+        // 从配置读取或使用默认值
+        this.chunkSize = config.chunkSize > 0 ? config.chunkSize : DEFAULT_CHUNK_SIZE;
+        this.maxChunks = config.maxChunks > 0 ? config.maxChunks : DEFAULT_MAX_CHUNKS;
+    }
+
+    /**
+     * 判断文件是否需要分片下载
+     */
+    public boolean shouldUseChunkedDownload(TempUpdateFile file) {
+        // 检查配置是否启用分片下载
+        if (!config.enableChunkedDownload) {
+            return false;
+        }
+
+        // 文件小于最小分片大小，不分片
+        if (file.length < MIN_CHUNKED_FILE_SIZE) {
+            return false;
+        }
+
+        // 计算需要的分片数
+        int chunkCount = calculateChunkCount(file.length);
+
+        // 至少2个分片才有意义
+        return chunkCount >= 2;
+    }
+
+    /**
+     * 计算分片数量
+     */
+    private int calculateChunkCount(long fileLength) {
+        int count = (int) Math.ceil((double) fileLength / chunkSize);
+        return Math.min(count, maxChunks);
+    }
+
+    /**
+     * 执行分片下载
+     *
+     * @param file 要下载的文件
+     * @throws McpatchBusinessException 下载失败
+     */
+    public void download(TempUpdateFile file) throws McpatchBusinessException {
+        String filename = PathUtility.getFilename(file.path);
+        Log.info("开始分片下载: " + file.path + " (大小: " + BytesUtils.convertBytes(file.length) + ")");
+
+        // 1. 计算分片
+        List<FileChunk> chunks = createChunks(file);
+        Log.debug("文件分成 " + chunks.size() + " 个分片");
+
+        // 2. 并行下载所有分片
+        downloadChunks(file, chunks, filename);
+
+        // 3. 合并分片
+        mergeChunks(file, chunks, filename);
+
+        // 4. 清理临时分片文件
+        cleanupChunks(chunks);
+
+        Log.info("分片下载完成: " + file.path);
+    }
+
+    /**
+     * 创建分片列表
+     */
+    private List<FileChunk> createChunks(TempUpdateFile file) {
+        int chunkCount = calculateChunkCount(file.length);
+        long actualChunkSize = file.length / chunkCount;
+
+        List<FileChunk> chunks = new ArrayList<>();
+        Path chunkDir = file.tempPath.getParent().resolve(file.tempPath.getFileName() + ".chunks");
+
+        try {
+            Files.createDirectories(chunkDir);
+        } catch (IOException e) {
+            throw new RuntimeException("无法创建分片临时目录: " + chunkDir, e);
+        }
+
+        for (int i = 0; i < chunkCount; i++) {
+            long start = i * actualChunkSize;
+            long end = (i == chunkCount - 1) ? file.length : (i + 1) * actualChunkSize;
+            Path chunkPath = chunkDir.resolve(String.format("chunk.%d.tmp", i));
+
+            chunks.add(new FileChunk(i, start, end, chunkPath));
+        }
+
+        return chunks;
+    }
+
+    /**
+     * 并行下载所有分片
+     */
+    private void downloadChunks(TempUpdateFile file, List<FileChunk> chunks, String filename)
+            throws McpatchBusinessException {
+
+        int maxRetries = 3;
+        CountDownLatch latch = new CountDownLatch(chunks.size());
+        ConcurrentLinkedQueue<ChunkDownloadException> failures = new ConcurrentLinkedQueue<>();
+
+        // 提交所有分片下载任务
+        for (FileChunk chunk : chunks) {
+            executor.submit(() -> {
+                try {
+                    downloadSingleChunk(file, chunk, filename, maxRetries);
+                } catch (Exception e) {
+                    failures.add(new ChunkDownloadException(chunk, e));
+                } finally {
+                    latch.countDown();
+                }
+            });
+        }
+
+        // 等待所有分片完成
+        try {
+            latch.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new McpatchBusinessException("用户打断了更新", e);
+        }
+
+        // 检查是否有失败的
+        if (!failures.isEmpty()) {
+            ChunkDownloadException firstFailure = failures.poll();
+            throw new McpatchBusinessException(
+                    String.format("分片下载失败: %s, 分片 %d, 原因: %s",
+                            file.path, firstFailure.chunk.index, firstFailure.exception.getMessage()),
+                    firstFailure.exception);
+        }
+    }
+
+    /**
+     * 下载单个分片（支持重试）
+     */
+    private void downloadSingleChunk(TempUpdateFile file, FileChunk chunk, String filename, int maxRetries)
+            throws Exception {
+
+        int attempts = 0;
+        Exception lastException = null;
+
+        while (attempts < maxRetries) {
+            attempts++;
+            chunk.incrementRetry();
+
+            try (ServerSession session = servers.createSession()) {
+                AtomicLong bytesCounter = new AtomicLong();
+
+                session.downloadFile(file.containerName, chunk.toRange(),
+                        file.path + " [chunk " + chunk.index + "]", chunk.tempPath,
+                        (packageLength, bytesReceived, lengthExpected) -> {
+                            // 更新分片进度
+                            chunk.downloadedBytes.set(bytesReceived);
+
+                            // 更新总进度
+                            totalDownloaded.addAndGet(packageLength);
+                            speed.feed(packageLength);
+
+                            // 更新UI
+                            updateUI(filename);
+                        },
+                        (fallback) -> {
+                            // 失败回退进度
+                            long toFallback = bytesCounter.get();
+                            totalDownloaded.addAndGet(-toFallback);
+                            chunk.downloadedBytes.addAndGet(-bytesCounter.get());
+                            bytesCounter.set(0);
+                            updateUI(filename);
+                        }
+                );
+
+                // 验证分片大小
+                long actualSize = Files.size(chunk.tempPath);
+                if (actualSize != chunk.length) {
+                    throw new McpatchBusinessException(
+                            String.format("分片 %d 大小不匹配: 预期 %d, 实际 %d",
+                                    chunk.index, chunk.length, actualSize));
+                }
+
+                chunk.markCompleted();
+                return; // 成功
+
+            } catch (Exception e) {
+                lastException = e;
+                Log.warn(String.format("分片 %d 第 %d 次下载失败: %s",
+                        chunk.index, attempts, e.getMessage()));
+
+                if (attempts < maxRetries) {
+                    Thread.sleep(1000); // 短暂等待后重试
+                }
+            }
+        }
+
+        throw lastException;
+    }
+
+    /**
+     * 合并所有分片到目标文件
+     */
+    private void mergeChunks(TempUpdateFile file, List<FileChunk> chunks, String filename)
+            throws McpatchBusinessException {
+
+        Log.debug("开始合并分片: " + file.path);
+
+        // 确保目标目录存在
+        try {
+            Files.createDirectories(file.tempPath.getParent());
+        } catch (IOException e) {
+            throw new McpatchBusinessException("无法创建目标目录: " + file.tempPath.getParent(), e);
+        }
+
+        // 使用 NIO FileChannel 合并，性能更好
+        try (FileChannel targetChannel = FileChannel.open(file.tempPath,
+                StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING)) {
+
+            // 预分配文件大小
+            targetChannel.truncate(file.length);
+
+            for (FileChunk chunk : chunks) {
+                // 更新UI显示合并进度
+                updateUI(filename + " (合并中)");
+
+                try (FileChannel sourceChannel = FileChannel.open(chunk.tempPath, StandardOpenOption.READ)) {
+                    // 使用 transferTo 高效复制
+                    long transferred = 0;
+                    while (transferred < chunk.length) {
+                        long count = sourceChannel.transferTo(transferred, chunk.length - transferred, targetChannel);
+                        if (count <= 0) {
+                            break;
+                        }
+                        transferred += count;
+                    }
+
+                    if (transferred != chunk.length) {
+                        throw new McpatchBusinessException(
+                                String.format("分片 %d 合并不完整: 预期 %d, 实际 %d",
+                                        chunk.index, chunk.length, transferred));
+                    }
+                }
+            }
+
+            // 强制刷盘
+            targetChannel.force(true);
+
+        } catch (IOException e) {
+            throw new McpatchBusinessException("合并分片失败: " + file.path, e);
+        }
+
+        Log.debug("合并完成: " + file.path);
+    }
+
+    /**
+     * 清理临时分片文件
+     */
+    private void cleanupChunks(List<FileChunk> chunks) {
+        for (FileChunk chunk : chunks) {
+            try {
+                if (Files.exists(chunk.tempPath)) {
+                    Files.delete(chunk.tempPath);
+                }
+            } catch (IOException e) {
+                Log.warn("无法删除分片临时文件: " + chunk.tempPath);
+            }
+        }
+
+        // 尝试删除分片目录
+        if (!chunks.isEmpty()) {
+            try {
+                Path chunkDir = chunks.get(0).tempPath.getParent();
+                Files.deleteIfExists(chunkDir);
+            } catch (IOException e) {
+                // 忽略
+            }
+        }
+    }
+
+    /**
+     * 更新UI显示
+     */
+    private void updateUI(String filename) {
+        if (window == null) {
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+        if (now - uiTimer.get() <= 300) {
+            return; // 限频
+        }
+        uiTimer.set(now);
+
+        final long dl = totalDownloaded.get();
+        final String speedStr = speed.sampleSpeed2();
+
+        SwingUtilities.invokeLater(() -> {
+            window.setProgressBarText(String.format("%s/%s  -  %s/s",
+                    BytesUtils.convertBytes(dl),
+                    BytesUtils.convertBytes(totalBytes),
+                    speedStr));
+            window.setProgressBarValue((int) (dl / (float) totalBytes * 1000));
+            window.setLabelSecondaryText(filename);
+        });
+    }
+
+    /**
+     * 分片下载异常
+     */
+    static class ChunkDownloadException {
+        final FileChunk chunk;
+        final Exception exception;
+
+        ChunkDownloadException(FileChunk chunk, Exception exception) {
+            this.chunk = chunk;
+            this.exception = exception;
+        }
+    }
+}

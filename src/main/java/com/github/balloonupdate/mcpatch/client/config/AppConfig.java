@@ -123,6 +123,23 @@ public class AppConfig {
      */
     public int maxThreads;
 
+    /**
+     * 分片下载的分片大小，单位字节，默认 1MB<p>
+     * 仅当文件大小大于 5MB 时才会启用分片下载
+     */
+    public long chunkSize;
+
+    /**
+     * 分片下载的最大分片数，默认 16<p>
+     * 避免小文件产生过多分片
+     */
+    public int maxChunks;
+
+    /**
+     * 是否启用分片下载，默认 true
+     */
+    public boolean enableChunkedDownload;
+
 
     public AppConfig(Map<String, Object> map) {
         List<String> urls = getList(map, "urls", null, new ArrayList<>());
@@ -143,6 +160,9 @@ public class AppConfig {
         boolean ignoreHttpContentLength = getBoolean(map, "ignore-http-content-length", "", false);
         boolean testMode = getBoolean(map, "test-mode", null, false);
         int maxThreads = getInt(map, "max-threads", null, 0);
+        long chunkSize = getLong(map, "chunk-size", null, 1024L * 1024);
+        int maxChunks = getInt(map, "max-chunks", null, 16);
+        boolean enableChunkedDownload = getBoolean(map, "enable-chunked-download", null, true);
 
 //        if (urls.contains("webda"))
 //
@@ -165,6 +185,9 @@ public class AppConfig {
         this.ignoreHttpContentLength = ignoreHttpContentLength;
         this.testMode = testMode;
         this.maxThreads = maxThreads;
+        this.chunkSize = chunkSize;
+        this.maxChunks = maxChunks;
+        this.enableChunkedDownload = enableChunkedDownload;
     }
 
     @SuppressWarnings("unchecked")
@@ -196,6 +219,10 @@ public class AppConfig {
 
     static int getInt(Map<String, Object> map, String key, String formerKey, int defaultValue) {
         return getOption(map, key, formerKey, defaultValue, Integer.class);
+    }
+
+    static long getLong(Map<String, Object> map, String key, String formerKey, long defaultValue) {
+        return getOption(map, key, formerKey, defaultValue, Long.class);
     }
 
     static List<String> getList(Map<String, Object> map, String key, String formerKey, List<String> defaultValue) {
