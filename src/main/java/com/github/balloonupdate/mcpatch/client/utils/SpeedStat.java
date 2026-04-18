@@ -1,7 +1,6 @@
 package com.github.balloonupdate.mcpatch.client.utils;
 
 import java.util.ArrayDeque;
-import java.util.Stack;
 
 /**
  * 代表一个速度统计，用来计算下载文件时的网速
@@ -18,9 +17,9 @@ public class SpeedStat {
     ArrayDeque<Sample> frames = new ArrayDeque<>();
 
     /**
-     * 对象池
+     * 对象池（使用 ArrayDeque 替代遗留的 Stack 类）
      */
-    Stack<Sample> cache = new Stack<>();
+    ArrayDeque<Sample> cache = new ArrayDeque<>();
 
     public SpeedStat(int samplingPeriod) {
         this.period = samplingPeriod;
@@ -91,7 +90,7 @@ public class SpeedStat {
     }
 
     Sample GetSample(long bytes, long time) {
-        Sample sample = cache.empty() ? new Sample() : cache.pop();
+        Sample sample = cache.isEmpty() ? new Sample() : cache.pollLast();
 
         sample.bytes = bytes;
         sample.time = time;
@@ -100,7 +99,7 @@ public class SpeedStat {
     }
 
     void ReleaseSample(Sample sample) {
-        cache.push(sample);
+        cache.addLast(sample);
     }
 
     // 代表一个采样数据

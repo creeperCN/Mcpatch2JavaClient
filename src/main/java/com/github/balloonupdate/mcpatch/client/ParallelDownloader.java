@@ -83,6 +83,11 @@ public class ParallelDownloader {
      */
     private static final long FOCUS_LOCK_DURATION = 2000;
 
+    /**
+     * 焦点机制的互斥锁，防止 acquireFocus() 的 TOCTOU 竞态条件
+     */
+    private final Object focusLock = new Object();
+
     public ParallelDownloader(Servers servers, AppConfig config, McPatchWindow window,
                               AtomicLong totalDownloaded, long totalBytes,
                               SpeedStat speed, AtomicLong uiTimer, int threadCount, int totalFileCount) {
@@ -103,15 +108,19 @@ public class ParallelDownloader {
      * 尝试获取焦点。如果当前没有焦点文件或锁定时间已过，则成为焦点文件。
      * 焦点机制：多线程同时下载时，单文件进度条只跟踪一个"焦点文件"，
      * 避免文件名疯狂闪烁。焦点锁定2秒，期间不会被其他文件抢占。
+     * <p>
+     * 使用 synchronized 保证 check-then-act 的原子性，避免 TOCTOU 竞态条件。
      *
      * @param filename 要获取焦点的文件名
      */
     private void acquireFocus(String filename) {
-        long now = System.currentTimeMillis();
-        // 没有焦点文件，或者焦点锁定时间已过，可以抢占
-        if (focusFilename == null || now - focusLockTime.get() > FOCUS_LOCK_DURATION) {
-            focusFilename = filename;
-            focusLockTime.set(now);
+        synchronized (focusLock) {
+            long now = System.currentTimeMillis();
+            // 没有焦点文件，或者焦点锁定时间已过，可以抢占
+            if (focusFilename == null || now - focusLockTime.get() > FOCUS_LOCK_DURATION) {
+                focusFilename = filename;
+                focusLockTime.set(now);
+            }
         }
     }
 
@@ -119,7 +128,9 @@ public class ParallelDownloader {
      * 判断指定文件是否是当前的焦点文件
      */
     private boolean isFocusFile(String filename) {
-        return filename.equals(focusFilename);
+        synchronized (focusLock) {
+            return filename.equals(focusFilename);
+        }
     }
 
     /**
@@ -177,6 +188,15 @@ public class ParallelDownloader {
             }
         } finally {
             executor.shutdown();
+            try {
+                if (!executor.awaitTermination(10, TimeUnit.SECONDS)) {
+                    executor.shutdownNow();
+                    Log.warn("并行下载线程池未能在10秒内正常终止，已强制关闭");
+                }
+            } catch (InterruptedException e) {
+                executor.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
         }
 
         if (!remaining.isEmpty()) {

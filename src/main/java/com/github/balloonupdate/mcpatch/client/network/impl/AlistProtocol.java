@@ -19,8 +19,8 @@ import java.net.SocketException;
 import java.net.SocketTimeoutException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -51,8 +51,9 @@ public class AlistProtocol implements UpdatingServer {
 
     /**
      * 下载链接缓存 path -> raw_url
+     * 使用 ConcurrentHashMap 保证多线程下载时的线程安全
      */
-    HashMap<String, String> cache = new HashMap<>();
+    ConcurrentHashMap<String, String> cache = new ConcurrentHashMap<>();
 
     public AlistProtocol(int number, String url, AppConfig config) {
         this.number = number;

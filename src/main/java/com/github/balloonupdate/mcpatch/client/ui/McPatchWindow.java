@@ -328,32 +328,60 @@ public class McPatchWindow {
      * 进度条下方的文字（总进度详情）
      */
     public void setProgressBarText(String value) {
-        totalProgressLabel.setText(value);
-        totalProgressLabel.setToolTipText(value);
+        Runnable task = () -> {
+            totalProgressLabel.setText(value);
+            totalProgressLabel.setToolTipText(value);
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            task.run();
+        } else {
+            SwingUtilities.invokeLater(task);
+        }
     }
 
     /**
      * 总进度条的值 (0-1000)
      */
     public void setProgressBarValue(int value) {
-        totalProgressBar.setValue(value);
-        totalProgressBar.setString(String.format("%.1f%%", value / 10.0));
+        Runnable task = () -> {
+            totalProgressBar.setValue(value);
+            totalProgressBar.setString(String.format("%.1f%%", value / 10.0));
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            task.run();
+        } else {
+            SwingUtilities.invokeLater(task);
+        }
     }
 
     /**
      * 主状态标签文字
      */
     public void setLabelText(String value) {
-        statusLabel.setText(value);
-        statusLabel.setToolTipText(value);
+        Runnable task = () -> {
+            statusLabel.setText(value);
+            statusLabel.setToolTipText(value);
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            task.run();
+        } else {
+            SwingUtilities.invokeLater(task);
+        }
     }
 
     /**
      * 副标签文字（当前文件名）
      */
     public void setLabelSecondaryText(String value) {
-        fileLabel.setToolTipText(value);
-        fileLabel.setText(value);
+        Runnable task = () -> {
+            fileLabel.setToolTipText(value);
+            fileLabel.setText(value);
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            task.run();
+        } else {
+            SwingUtilities.invokeLater(task);
+        }
     }
 
     @FunctionalInterface

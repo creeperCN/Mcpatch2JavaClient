@@ -19,7 +19,6 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.FileTime;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
@@ -564,13 +563,13 @@ public class Work {
             Files.write(versionFile, latestVersion.getBytes(StandardCharsets.UTF_8));
 
             // 2.生成更新记录
-            String changelogs = "";
-
-            Collections.reverse(versionMetas);
-            for (TempVersionMeta meta : versionMetas) {
-                changelogs += String.format("---------- %s ----------\n%s\n\n", meta.metadata.label, meta.metadata.logs);
+            // 使用反向遍历替代 Collections.reverse()，避免原地修改列表后忘记恢复的风险
+            StringBuilder changelogsBuilder = new StringBuilder();
+            for (int i = versionMetas.size() - 1; i >= 0; i--) {
+                TempVersionMeta meta = versionMetas.get(i);
+                changelogsBuilder.append(String.format("---------- %s ----------\n%s\n\n", meta.metadata.label, meta.metadata.logs));
             }
-            Collections.reverse(versionMetas);
+            String changelogs = changelogsBuilder.toString();
 
             Log.info("更新成功: \n" + changelogs.trim());
 

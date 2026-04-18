@@ -61,6 +61,11 @@ public class ChunkedDownloader {
     private volatile String focusFilename;
 
     /**
+     * 焦点机制的互斥锁，防止 acquireFocus() 的 TOCTOU 竞态条件
+     */
+    private final Object focusLock = new Object();
+
+    /**
      * 创建一个分片下载器（旧版构造函数，不含焦点机制，向后兼容）
      *
      * @param executor 不再使用，保留参数仅为向后兼容
@@ -122,20 +127,23 @@ public class ChunkedDownloader {
 
     /**
      * 尝试获取焦点
+     * 使用 synchronized 保证 check-then-act 的原子性，避免 TOCTOU 竞态条件
      */
     private void acquireFocus(String filename) {
-        this.focusFilename = filename;
-        long now = System.currentTimeMillis();
-        if (sharedFocusLockTime != null && now - sharedFocusLockTime.get() > FOCUS_LOCK_DURATION) {
-            sharedFocusLockTime.set(now);
+        synchronized (focusLock) {
+            this.focusFilename = filename;
+            long now = System.currentTimeMillis();
+            if (sharedFocusLockTime != null && now - sharedFocusLockTime.get() > FOCUS_LOCK_DURATION) {
+                sharedFocusLockTime.set(now);
+            }
         }
     }
 
     /**
      * 判断此文件是否是焦点文件
+     * ChunkedDownloader 处理的文件通常是大文件，总是作为焦点显示
      */
     private boolean isFocusFile(String filename) {
-        // ChunkedDownloader 处理的文件通常是大文件，总是作为焦点显示
         return true;
     }
 
@@ -320,6 +328,15 @@ public class ChunkedDownloader {
             }
         } finally {
             chunkExecutor.shutdown();
+            try {
+                if (!chunkExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                    chunkExecutor.shutdownNow();
+                    Log.warn("分片下载线程池未能在5秒内正常终止，已强制关闭");
+                }
+            } catch (InterruptedException e) {
+                chunkExecutor.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
         }
 
         // 检查是否有失败的

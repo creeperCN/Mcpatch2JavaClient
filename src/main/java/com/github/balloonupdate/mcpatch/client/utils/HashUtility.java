@@ -13,6 +13,24 @@ import java.security.NoSuchAlgorithmException;
 public class HashUtility {
 
     /**
+     * 十六进制字符查表，用于快速 byte → hex 转换（替代 String.format）
+     */
+    private static final char[] HEX_CHARS = "0123456789abcdef".toCharArray();
+
+    /**
+     * 将字节数组快速转换为十六进制小写字符串
+     */
+    private static String bytesToHex(byte[] bytes) {
+        char[] chars = new char[bytes.length * 2];
+        for (int i = 0; i < bytes.length; i++) {
+            int b = bytes[i] & 0xFF;
+            chars[i * 2] = HEX_CHARS[b >>> 4];
+            chars[i * 2 + 1] = HEX_CHARS[b & 0x0F];
+        }
+        return new String(chars);
+    }
+
+    /**
      * 进度回调接口
      */
     @FunctionalInterface
@@ -76,11 +94,7 @@ public class HashUtility {
         }
 
         byte[] hashBytes = digest.digest();
-        StringBuilder sb = new StringBuilder(hashBytes.length * 2);
-        for (byte b : hashBytes) {
-            sb.append(String.format("%02x", b));
-        }
-        return sb.toString();
+        return bytesToHex(hashBytes);
     }
 
     /**
@@ -148,19 +162,8 @@ class Crc64_XZ {
 
     private long crc = initialValue;
 
-    byte[] buf = new byte[128 * 1024];
-
     public void reset() {
         crc = initialValue;
-    }
-
-    public void update(Path file) throws IOException {
-        try (BufferedInputStream stream = new BufferedInputStream(Files.newInputStream(file))) {
-            int read;
-
-            while ((read = stream.read(buf)) != -1)
-                update(buf, 0, read);
-        }
     }
 
     public void update(byte[] data, int offset, int len) {
@@ -209,19 +212,8 @@ class Crc16_IBM_SDLC {
 
     private int crc = initialValue;
 
-    byte[] buf = new byte[128 * 1024];
-
     public void reset() {
         crc = initialValue;
-    }
-
-    public void update(Path file) throws IOException {
-        try (BufferedInputStream stream = new BufferedInputStream(Files.newInputStream(file))) {
-            int read;
-
-            while ((read = stream.read(buf)) != -1)
-                update(buf, 0, read);
-        }
     }
 
     public void update(byte[] data, int offset, int len) {
