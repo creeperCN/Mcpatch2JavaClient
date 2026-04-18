@@ -405,11 +405,10 @@ public class ChunkedDownloader {
 
         Log.debug("开始合并分片: " + file.path);
 
-        String mergeLabel = filename + " (合并中)";
-
         // 更新单文件进度条为合并状态（仅焦点文件）
+        // 注意：焦点判断使用原始 filename，显示名称附加"(合并中)"后缀
         if (window != null && isFocusFile(filename)) {
-            final String displayName = getDisplayName(mergeLabel);
+            final String displayName = getDisplayName(filename) + " (合并中)";
             SwingUtilities.invokeLater(() -> {
                 window.setFileProgress(displayName, 0, file.length);
             });
@@ -455,7 +454,7 @@ public class ChunkedDownloader {
                 // 更新合并进度（仅焦点文件）
                 final long merged = totalMerged;
                 if (window != null && isFocusFile(filename)) {
-                    final String displayName = getDisplayName(mergeLabel);
+                    final String displayName = getDisplayName(filename) + " (合并中)";
                     SwingUtilities.invokeLater(() -> {
                         window.setFileProgress(displayName, merged, file.length);
                     });
@@ -491,21 +490,21 @@ public class ChunkedDownloader {
     private void verifyMergedFile(TempUpdateFile file, String filename) throws McpatchBusinessException {
         Log.debug("开始校验合并文件: " + file.path);
 
-        String verifyLabel = filename + " (校验中)";
-
         // 更新单文件进度条为校验状态（仅焦点文件）
+        // 注意：焦点判断使用原始 filename，显示名称附加"(校验中)"后缀
         if (window != null && isFocusFile(filename)) {
-            final String displayName = getDisplayName(verifyLabel);
+            final String displayName = getDisplayName(filename) + " (校验中)";
             SwingUtilities.invokeLater(() -> {
                 window.setFileProgress(displayName, 0, file.length);
             });
         }
 
         // 优先使用 SHA-256 校验
+        // 注意：传原始 filename 给 updateVerifyProgress，让其在内部添加后缀和判断焦点
         if (file.sha256 != null && !file.sha256.isEmpty()) {
             try {
                 String actualSHA256 = HashUtility.calculateSHA256WithProgress(file.tempPath, file.length,
-                        (bytesRead, total) -> updateVerifyProgress(verifyLabel, bytesRead, total));
+                        (bytesRead, total) -> updateVerifyProgress(filename, bytesRead, total));
                 if (!actualSHA256.equals(file.sha256)) {
                     throw new McpatchBusinessException(
                             String.format("分片下载文件 SHA-256 校验失败: 预期 %s, 实际 %s, 文件路径 %s",
@@ -519,7 +518,7 @@ public class ChunkedDownloader {
             // 服务端未提供 SHA-256 时，回退到 CRC 校验
             try {
                 String actualHash = HashUtility.calculateHashWithProgress(file.tempPath, file.length,
-                        (bytesRead, total) -> updateVerifyProgress(verifyLabel, bytesRead, total));
+                        (bytesRead, total) -> updateVerifyProgress(filename, bytesRead, total));
                 if (!actualHash.equals(file.hash)) {
                     throw new McpatchBusinessException(
                             String.format("分片下载文件 CRC 校验失败: 预期 %s, 实际 %s, 文件路径 %s",
@@ -534,6 +533,7 @@ public class ChunkedDownloader {
 
     /**
      * 更新校验进度（带限频，同时更新单文件进度和总进度）
+     * @param filename 原始文件名（不含后缀），用于焦点判断
      */
     private void updateVerifyProgress(String filename, long bytesRead, long totalFileBytes) {
         if (window == null) return;
@@ -545,7 +545,8 @@ public class ChunkedDownloader {
         final long br = bytesRead;
         final long tb = totalFileBytes;
         final String speedStr = speed.sampleSpeed2();
-        final String displayName = getDisplayName(filename);
+        // 校验阶段的显示名称附加"(校验中)"后缀
+        final String displayName = getDisplayName(filename) + " (校验中)";
 
         final boolean isFocus = isFocusFile(filename);
 
