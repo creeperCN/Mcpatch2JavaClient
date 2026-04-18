@@ -116,6 +116,13 @@ public class AppConfig {
      */
     public boolean testMode;
 
+    /**
+     * 最大并行下载线程数，0 表示自动根据文件总大小决定<p>
+     * 自动策略：&lt;1MB=1线程, 1-10MB=2线程, 10-50MB=3线程, 50-100MB=4线程, 100-500MB=6线程, &gt;500MB=8线程<p>
+     * 线程数不会超过CPU核心数
+     */
+    public int maxThreads;
+
 
     public AppConfig(Map<String, Object> map) {
         List<String> urls = getList(map, "urls", null, new ArrayList<>());
@@ -135,6 +142,7 @@ public class AppConfig {
         boolean ignoreSSLCertificate = getBoolean(map, "ignore-ssl-cert", "http-ignore-certificate", false);
         boolean ignoreHttpContentLength = getBoolean(map, "ignore-http-content-length", "", false);
         boolean testMode = getBoolean(map, "test-mode", null, false);
+        int maxThreads = getInt(map, "max-threads", null, 0);
 
 //        if (urls.contains("webda"))
 //
@@ -156,6 +164,7 @@ public class AppConfig {
         this.ignoreSSLCertificate = ignoreSSLCertificate;
         this.ignoreHttpContentLength = ignoreHttpContentLength;
         this.testMode = testMode;
+        this.maxThreads = maxThreads;
     }
 
     @SuppressWarnings("unchecked")

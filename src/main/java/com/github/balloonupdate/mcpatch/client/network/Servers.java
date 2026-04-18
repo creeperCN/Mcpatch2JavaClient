@@ -14,6 +14,7 @@ import java.nio.channels.ClosedByInterruptException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 自动重试和切换备用服务器的服务器类，各种业务逻辑都会直接和这个类打交道，而不是具体的协议实现类
@@ -30,9 +31,9 @@ public class Servers implements UpdatingServer {
     List<UpdatingServer> servers = new ArrayList<>();
 
     /**
-     * 当前切换到第几个服务器了
+     * 当前切换到第几个服务器了（线程安全，使用AtomicInteger）
      */
-    int current = 0;
+    AtomicInteger current = new AtomicInteger(0);
 
     public Servers(AppConfig config) throws McpatchBusinessException {
         this.config = config;
@@ -57,6 +58,14 @@ public class Servers implements UpdatingServer {
         if (servers.isEmpty()) {
             throw new McpatchBusinessException("找不到任何更新服务器地址，请至少填写一个");
         }
+    }
+
+    /**
+     * 创建一个线程独立的服务器会话，用于并行下载场景。
+     * 每个下载线程应使用独立的 ServerSession 实例。
+     */
+    public ServerSession createSession() {
+        return new ServerSession(servers, config, current);
     }
 
     @Override
@@ -88,8 +97,8 @@ public class Servers implements UpdatingServer {
         int errorTimes = 0;
 
         // 每个服务器挨个试
-        while (current < servers.size()) {
-            UpdatingServer server = servers.get(current);
+        while (current.get() < servers.size()) {
+            UpdatingServer server = servers.get(current.get());
 
             int times = config.reties;
 
@@ -130,11 +139,12 @@ public class Servers implements UpdatingServer {
             }
 
             // 如果还有后续服务器，就打印错误
-            if (current < servers.size() - 1)
+            if (current.get() < servers.size() - 1)
                 Log.error(ex.toString());
 
-            // 切换服务器
-            current += 1;
+            // 原子切换服务器
+            int oldVal = current.get();
+            current.compareAndSet(oldVal, oldVal + 1);
         }
 
         RuntimeAssert.isTrue(ex != null);

@@ -10,15 +10,13 @@ import java.util.Arrays;
  * 文件 hash 计算类，所有计算文件哈希值时都会调用此函数，可以在此函数中替换任意哈希算法
  */
 public class HashUtility {
-    static Crc64_XZ crc64 = new Crc64_XZ();
-    static Crc16_IBM_SDLC crc16 = new Crc16_IBM_SDLC();
-
     /**
-     * 计算一个文件的校验值（此函数不是线程安全的，多线程环境下需要注意）
+     * 计算一个文件的校验值（线程安全：每次调用创建新的CRC实例）
      */
     public static String calculateHash(Path file) throws IOException {
-        crc64.reset();
-        crc16.reset();
+        // 每次创建新实例，避免线程安全问题
+        Crc64_XZ crc64 = new Crc64_XZ();
+        Crc16_IBM_SDLC crc16 = new Crc16_IBM_SDLC();
 
         crc64.update(file);
         crc16.update(file);
@@ -26,10 +24,10 @@ public class HashUtility {
         long a = crc64.getValue();
         long b = crc16.getValue();
 
-        String crc64 = String.format("%016x", a);
-        String crc16 = String.format("%04x", b);
+        String crc64Str = String.format("%016x", a);
+        String crc16Str = String.format("%04x", b);
 
-        return crc64 + "_" + crc16;
+        return crc64Str + "_" + crc16Str;
     }
 }
 

@@ -421,80 +421,19 @@ public class Work {
             SpeedStat speed = new SpeedStat(1500);
             AtomicLong uiTimer = new AtomicLong(System.currentTimeMillis() - 600);
 
-            // 1.下载到临时文件
+            // 1.并行下载到临时文件
             if (window != null) {
                 window.setLabelText("准备开始下载文件");
             }
 
-            for (TempUpdateFile f : updateFiles) {
-                String filename = PathUtility.getFilename(f.path);
+            // 计算线程数
+            int threadCount = ParallelDownloader.calculateThreadCount(totalBytes, config.maxThreads);
+            Log.info(String.format("使用 %d 个线程并行下载，总大小 %s", threadCount, BytesUtils.convertBytes(totalBytes)));
 
-                Log.debug("  a.开始下载 " + f.path);
-                Log.debug("    Download " + f.tempPath);
-
-                Path tempDirectory = f.tempPath.getParent();
-                Files.createDirectories(tempDirectory);
-
-                    // 空文件不需要下载
-                    if (f.length == 0) {
-                        // 如果临时文件已存在（上次更新中断），先删除再创建
-                        if (Files.exists(f.tempPath)) {
-                            Files.delete(f.tempPath);
-                        }
-                        Files.createFile(f.tempPath);
-                        continue;
-                    }
-
-                    // 展示即将要开始下载内容
-                    if (window != null) {
-                        window.setProgressBarValue((int) (totalDownloaded.get() / (float) totalBytes * 1000));
-                        window.setLabelSecondaryText(filename);
-                        window.setLabelText(String.format("正在下载 %s 版本", f.label));
-                    }
-
-                    AtomicLong bytesCounter = new AtomicLong();
-
-                    Range range = new Range(f.offset, f.offset + f.length);
-                    String desc = f.path + " in " + f.label;
-
-                    server.downloadFile(f.containerName, range, desc, f.tempPath, (packageLength, bytesReceived, lengthExpected) -> {
-                        // 计数
-                        bytesCounter.addAndGet(packageLength);
-                        totalDownloaded.addAndGet(packageLength);
-                        speed.feed(packageLength);
-
-                        // 更新UI
-                        if (window != null) {
-                            long now2 = System.currentTimeMillis();
-
-                            if (now2 - uiTimer.get() > 300) {
-                                uiTimer.set(now2);
-
-                                window.setProgressBarText(String.format("%s/%s  -  %s/s", BytesUtils.convertBytes(totalDownloaded.get()), BytesUtils.convertBytes(totalBytes), speed.sampleSpeed2()));
-                                window.setProgressBarValue((int) (totalDownloaded.get() / (float) totalBytes * 1000));
-                            }
-                        }
-                    }, (fallback) -> {
-                        // 进度回退
-                        totalDownloaded.addAndGet(-bytesCounter.get());
-
-                        if (window != null) {
-                            window.setProgressBarText(String.format("%s/%s  -  %s/s", BytesUtils.convertBytes(totalDownloaded.get()), BytesUtils.convertBytes(totalBytes), speed.sampleSpeed2()));
-                            window.setProgressBarValue((int) (totalDownloaded.get() / (float) totalBytes * 1000));
-                        }
-                    });
-
-                    // 修复文件 mtime
-                    Files.setLastModifiedTime(f.tempPath, FileTime.from(f.modified, TimeUnit.SECONDS));
-
-
-
-                // 校验文件
-                String hash = HashUtility.calculateHash(f.tempPath);
-
-                if (!hash.equals(f.hash))
-                    throw new McpatchBusinessException(String.format("临时文件校验失败，预期 %s，实际 %s，文件路径 %s", f.hash, hash, f.tempPath.toFile().getAbsolutePath()));
-            }
+            // 执行并行下载
+            ParallelDownloader downloader = new ParallelDownloader(
+                server, config, window, totalDownloaded, totalBytes, speed, uiTimer, threadCount);
+            downloader.download(updateFiles);
 
             if (window != null)
                 window.setProgressBarValue(1000);
