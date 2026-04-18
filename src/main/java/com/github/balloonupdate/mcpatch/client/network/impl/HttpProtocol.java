@@ -124,7 +124,11 @@ public class HttpProtocol implements UpdatingServer {
                         }
                     }
 
-                    // 完成下载
+                    // 完成下载：先报告剩余累积字节，再发送完成回调
+                    long remaining = report.flush();
+                    if (remaining > 0) {
+                        callback.on(remaining, downloaded, contentLength);
+                    }
                     callback.on(0, contentLength, contentLength);
                 }
             } catch (IOException e) {

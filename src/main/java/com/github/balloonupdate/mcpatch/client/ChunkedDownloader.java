@@ -27,6 +27,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -54,11 +55,13 @@ public class ChunkedDownloader {
     private final long chunkSize;
     private final int maxChunks;
 
+    // 焦点文件机制（与 ParallelDownloader 共享）
+    private final AtomicInteger sharedActiveDownloadCount;
+    private final AtomicLong sharedFocusLockTime;
+    private volatile String focusFilename;
+
     /**
-     * 创建一个分片下载器
-     *
-     * 注意：分片下载器不再使用外部传入的线程池，而是为每个文件的分片下载
-     * 创建独立的线程池，避免与 ParallelDownloader 共享线程池导致死锁。
+     * 创建一个分片下载器（旧版构造函数，不含焦点机制，向后兼容）
      *
      * @param executor 不再使用，保留参数仅为向后兼容
      */
@@ -73,11 +76,81 @@ public class ChunkedDownloader {
         this.totalBytes = totalBytes;
         this.speed = speed;
         this.uiTimer = uiTimer;
+        this.sharedActiveDownloadCount = new AtomicInteger(1);
+        this.focusFilename = null;
+        this.sharedFocusLockTime = new AtomicLong(0);
 
         // 从配置读取或使用默认值
         this.chunkSize = config.chunkSize > 0 ? config.chunkSize : DEFAULT_CHUNK_SIZE;
         this.maxChunks = config.maxChunks > 0 ? config.maxChunks : DEFAULT_MAX_CHUNKS;
     }
+
+    /**
+     * 创建一个分片下载器（新版构造函数，含焦点文件机制）
+     *
+     * @param executor                    不再使用，保留参数仅为向后兼容
+     * @param sharedActiveDownloadCount   与 ParallelDownloader 共享的活跃下载数
+     * @param focusFilename               焦点文件名引用（可为 null）
+     * @param sharedFocusLockTime         焦点文件锁定时间
+     */
+    public ChunkedDownloader(Servers servers, AppConfig config, McPatchWindow window,
+                             AtomicLong totalDownloaded, long totalBytes,
+                             SpeedStat speed, AtomicLong uiTimer,
+                             ExecutorService executor,
+                             AtomicInteger sharedActiveDownloadCount,
+                             String focusFilename,
+                             AtomicLong sharedFocusLockTime) {
+        this.servers = servers;
+        this.config = config;
+        this.window = window;
+        this.totalDownloaded = totalDownloaded;
+        this.totalBytes = totalBytes;
+        this.speed = speed;
+        this.uiTimer = uiTimer;
+        this.sharedActiveDownloadCount = sharedActiveDownloadCount;
+        this.focusFilename = focusFilename;
+        this.sharedFocusLockTime = sharedFocusLockTime;
+
+        // 从配置读取或使用默认值
+        this.chunkSize = config.chunkSize > 0 ? config.chunkSize : DEFAULT_CHUNK_SIZE;
+        this.maxChunks = config.maxChunks > 0 ? config.maxChunks : DEFAULT_MAX_CHUNKS;
+    }
+
+    // ===== 焦点文件管理 =====
+
+    private static final long FOCUS_LOCK_DURATION = 2000;
+
+    /**
+     * 尝试获取焦点
+     */
+    private void acquireFocus(String filename) {
+        this.focusFilename = filename;
+        long now = System.currentTimeMillis();
+        if (sharedFocusLockTime != null && now - sharedFocusLockTime.get() > FOCUS_LOCK_DURATION) {
+            sharedFocusLockTime.set(now);
+        }
+    }
+
+    /**
+     * 判断此文件是否是焦点文件
+     */
+    private boolean isFocusFile(String filename) {
+        // ChunkedDownloader 处理的文件通常是大文件，总是作为焦点显示
+        return true;
+    }
+
+    /**
+     * 获取显示名称（含并行下载提示）
+     */
+    private String getDisplayName(String filename) {
+        int active = sharedActiveDownloadCount != null ? sharedActiveDownloadCount.get() : 1;
+        if (active > 1) {
+            return filename + " (+" + (active - 1) + ")";
+        }
+        return filename;
+    }
+
+    // ===== 下载逻辑 =====
 
     /**
      * 判断文件是否需要分片下载
@@ -118,12 +191,18 @@ public class ChunkedDownloader {
         String filename = PathUtility.getFilename(file.path);
         Log.info("开始分片下载: " + file.path + " (大小: " + BytesUtils.convertBytes(file.length) + ")");
 
+        // 尝试获取焦点
+        acquireFocus(filename);
+
         // 1. 计算分片
         List<FileChunk> chunks = createChunks(file);
         Log.debug("文件分成 " + chunks.size() + " 个分片");
 
         // 2. 并行下载所有分片
         downloadChunks(file, chunks, filename);
+
+        // 下载完成，强制刷新总进度到100%（避免限频导致最后几字节未显示）
+        forceUpdateTotalProgress();
 
         // 3. 合并分片
         mergeChunks(file, chunks, filename);
@@ -143,8 +222,9 @@ public class ChunkedDownloader {
 
         // 7. 显示文件完成
         if (window != null) {
+            final String displayName = getDisplayName(filename);
             SwingUtilities.invokeLater(() -> {
-                window.setFileProgress(filename, file.length, file.length);
+                window.setFileProgress(displayName, file.length, file.length);
             });
         }
 
@@ -211,8 +291,9 @@ public class ChunkedDownloader {
 
         // 初始化单文件进度显示
         if (window != null) {
+            final String displayName = getDisplayName(filename);
             SwingUtilities.invokeLater(() -> {
-                window.setFileProgress(filename, 0, file.length);
+                window.setFileProgress(displayName, 0, file.length);
             });
         }
 
@@ -341,10 +422,13 @@ public class ChunkedDownloader {
 
         Log.debug("开始合并分片: " + file.path);
 
+        String mergeLabel = filename + " (合并中)";
+
         // 更新单文件进度条为合并状态
         if (window != null) {
+            final String displayName = getDisplayName(mergeLabel);
             SwingUtilities.invokeLater(() -> {
-                window.setFileProgress(filename + " (合并中)", 0, file.length);
+                window.setFileProgress(displayName, 0, file.length);
             });
         }
 
@@ -388,8 +472,9 @@ public class ChunkedDownloader {
                 // 更新合并进度
                 final long merged = totalMerged;
                 if (window != null) {
+                    final String displayName = getDisplayName(mergeLabel);
                     SwingUtilities.invokeLater(() -> {
-                        window.setFileProgress(filename + " (合并中)", merged, file.length);
+                        window.setFileProgress(displayName, merged, file.length);
                     });
                 }
             }
@@ -418,21 +503,26 @@ public class ChunkedDownloader {
 
     /**
      * 校验合并后文件的完整性（SHA-256 优先，回退到 CRC 校验）
+     * 校验过程中会实时更新单文件进度条
      */
     private void verifyMergedFile(TempUpdateFile file, String filename) throws McpatchBusinessException {
         Log.debug("开始校验合并文件: " + file.path);
 
+        String verifyLabel = filename + " (校验中)";
+
         // 更新单文件进度条为校验状态
         if (window != null) {
+            final String displayName = getDisplayName(verifyLabel);
             SwingUtilities.invokeLater(() -> {
-                window.setFileProgress(filename + " (校验中)", 0, file.length);
+                window.setFileProgress(displayName, 0, file.length);
             });
         }
 
         // 优先使用 SHA-256 校验
         if (file.sha256 != null && !file.sha256.isEmpty()) {
             try {
-                String actualSHA256 = HashUtility.calculateSHA256(file.tempPath);
+                String actualSHA256 = HashUtility.calculateSHA256WithProgress(file.tempPath, file.length,
+                        (bytesRead, total) -> updateVerifyProgress(verifyLabel, bytesRead, total));
                 if (!actualSHA256.equals(file.sha256)) {
                     throw new McpatchBusinessException(
                             String.format("分片下载文件 SHA-256 校验失败: 预期 %s, 实际 %s, 文件路径 %s",
@@ -445,7 +535,8 @@ public class ChunkedDownloader {
         } else {
             // 服务端未提供 SHA-256 时，回退到 CRC 校验
             try {
-                String actualHash = HashUtility.calculateHash(file.tempPath);
+                String actualHash = HashUtility.calculateHashWithProgress(file.tempPath, file.length,
+                        (bytesRead, total) -> updateVerifyProgress(verifyLabel, bytesRead, total));
                 if (!actualHash.equals(file.hash)) {
                     throw new McpatchBusinessException(
                             String.format("分片下载文件 CRC 校验失败: 预期 %s, 实际 %s, 文件路径 %s",
@@ -456,6 +547,45 @@ public class ChunkedDownloader {
                 throw new McpatchBusinessException("计算文件 CRC 校验值时出错: " + file.path, e);
             }
         }
+    }
+
+    /**
+     * 更新校验进度（带限频，同时更新单文件进度和总进度）
+     */
+    private void updateVerifyProgress(String filename, long bytesRead, long totalFileBytes) {
+        if (window == null) return;
+
+        long now = System.currentTimeMillis();
+        if (now - uiTimer.get() <= 300) return;
+        uiTimer.set(now);
+
+        final long br = bytesRead;
+        final long tb = totalFileBytes;
+        final long dl = totalDownloaded.get();
+        final String speedStr = speed.sampleSpeed2();
+        final String displayName = getDisplayName(filename);
+
+        SwingUtilities.invokeLater(() -> {
+            window.setFileProgress(displayName, br, tb);
+            // 校验期间也要更新总进度，避免UI冻结
+            String eta = calculateETA(dl, totalBytes);
+            window.setTotalProgress(dl, totalBytes, speedStr, eta);
+        });
+    }
+
+    /**
+     * 强制刷新总进度到当前实际值（避免限频导致UI滞后）
+     */
+    private void forceUpdateTotalProgress() {
+        if (window == null) return;
+
+        final long dl = totalDownloaded.get();
+        final String speedStr = speed.sampleSpeed2();
+        String eta = calculateETA(dl, totalBytes);
+
+        SwingUtilities.invokeLater(() -> {
+            window.setTotalProgress(dl, totalBytes, speedStr, eta);
+        });
     }
 
     /**
@@ -503,10 +633,12 @@ public class ChunkedDownloader {
 
         final long dl = totalDownloaded.get();
         final String speedStr = speed.sampleSpeed2();
+        final long fd = fileDownloaded;
+        final String displayName = getDisplayName(filename);
 
         SwingUtilities.invokeLater(() -> {
             // 更新单文件进度
-            window.setFileProgress(filename, fileDownloaded, fileSize);
+            window.setFileProgress(displayName, fd, fileSize);
             // 更新总进度 + 速度 + ETA
             String eta = calculateETA(dl, totalBytes);
             window.setTotalProgress(dl, totalBytes, speedStr, eta);

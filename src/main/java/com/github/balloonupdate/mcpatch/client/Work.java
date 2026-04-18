@@ -449,6 +449,7 @@ public class Work {
             downloader.download(updateFiles);
 
             if (window != null) {
+                window.setTotalProgress(totalBytes, totalBytes, "", "");
                 window.setProgressBarValue(1000);
                 window.clearFileProgress();
             }

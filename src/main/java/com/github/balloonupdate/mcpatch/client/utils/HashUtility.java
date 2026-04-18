@@ -11,6 +11,19 @@ import java.security.NoSuchAlgorithmException;
  * 文件 hash 计算类，所有计算文件哈希值时都会调用此函数，可以在此函数中替换任意哈希算法
  */
 public class HashUtility {
+
+    /**
+     * 进度回调接口
+     */
+    @FunctionalInterface
+    public interface ProgressCallback {
+        /**
+         * @param bytesRead  已读取字节数
+         * @param totalBytes 文件总字节数
+         */
+        void onProgress(long bytesRead, long totalBytes);
+    }
+
     /**
      * 计算一个文件的 SHA-256 校验值（线程安全：每次调用创建新的 MessageDigest 实例）
      *
@@ -18,6 +31,18 @@ public class HashUtility {
      * @return SHA-256 十六进制小写字符串
      */
     public static String calculateSHA256(Path file) throws IOException {
+        return calculateSHA256WithProgress(file, -1, null);
+    }
+
+    /**
+     * 计算一个文件的 SHA-256 校验值，带进度回调
+     *
+     * @param file       要计算校验值的文件路径
+     * @param fileSize   文件总大小（用于进度计算），如果 <= 0 则自动获取
+     * @param callback   进度回调（可为 null）
+     * @return SHA-256 十六进制小写字符串
+     */
+    public static String calculateSHA256WithProgress(Path file, long fileSize, ProgressCallback callback) throws IOException {
         MessageDigest digest;
         try {
             digest = MessageDigest.getInstance("SHA-256");
@@ -26,12 +51,28 @@ public class HashUtility {
         }
 
         byte[] buf = new byte[128 * 1024];
+        long totalSize = fileSize > 0 ? fileSize : Files.size(file);
+        long totalRead = 0;
+        long lastCallbackBytes = 0;
+        // 每读 1MB 回调一次，避免过于频繁
+        final long CALLBACK_INTERVAL = 1024 * 1024;
 
         try (BufferedInputStream stream = new BufferedInputStream(Files.newInputStream(file))) {
             int read;
             while ((read = stream.read(buf)) != -1) {
                 digest.update(buf, 0, read);
+                totalRead += read;
+
+                if (callback != null && totalRead - lastCallbackBytes >= CALLBACK_INTERVAL) {
+                    callback.onProgress(totalRead, totalSize);
+                    lastCallbackBytes = totalRead;
+                }
             }
+        }
+
+        // 最终回调：确保报告100%
+        if (callback != null && totalRead > 0) {
+            callback.onProgress(totalRead, totalSize);
         }
 
         byte[] hashBytes = digest.digest();
@@ -46,12 +87,47 @@ public class HashUtility {
      * 计算一个文件的校验值（线程安全：每次调用创建新的CRC实例）
      */
     public static String calculateHash(Path file) throws IOException {
+        return calculateHashWithProgress(file, -1, null);
+    }
+
+    /**
+     * 计算一个文件的校验值，带进度回调（线程安全：每次调用创建新的CRC实例）
+     *
+     * @param file     要计算校验值的文件路径
+     * @param fileSize 文件总大小（用于进度计算），如果 <= 0 则自动获取
+     * @param callback 进度回调（可为 null）
+     */
+    public static String calculateHashWithProgress(Path file, long fileSize, ProgressCallback callback) throws IOException {
         // 每次创建新实例，避免线程安全问题
         Crc64_XZ crc64 = new Crc64_XZ();
         Crc16_IBM_SDLC crc16 = new Crc16_IBM_SDLC();
 
-        crc64.update(file);
-        crc16.update(file);
+        long totalSize = fileSize > 0 ? fileSize : Files.size(file);
+
+        // 两个 CRC 共享同一个流读取，手动读取并分别 update
+        byte[] buf = new byte[128 * 1024];
+        long totalRead = 0;
+        long lastCallbackBytes = 0;
+        final long CALLBACK_INTERVAL = 1024 * 1024;
+
+        try (BufferedInputStream stream = new BufferedInputStream(Files.newInputStream(file))) {
+            int read;
+            while ((read = stream.read(buf)) != -1) {
+                crc64.update(buf, 0, read);
+                crc16.update(buf, 0, read);
+                totalRead += read;
+
+                if (callback != null && totalRead - lastCallbackBytes >= CALLBACK_INTERVAL) {
+                    callback.onProgress(totalRead, totalSize);
+                    lastCallbackBytes = totalRead;
+                }
+            }
+        }
+
+        // 最终回调
+        if (callback != null && totalRead > 0) {
+            callback.onProgress(totalRead, totalSize);
+        }
 
         long a = crc64.getValue();
         long b = crc16.getValue();

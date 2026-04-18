@@ -128,7 +128,11 @@ public class McpatchProtocol implements UpdatingServer {
 
                 } while (remains > 0);
 
-                // 完成下载
+                // 完成下载：先报告剩余累积字节，再发送完成回调
+                long remaining = report.flush();
+                if (remaining > 0) {
+                    callback.on(remaining, downloaded, size);
+                }
                 callback.on(0, size, size);
             }
         } catch (IOException e) {

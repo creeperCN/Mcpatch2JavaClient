@@ -32,4 +32,16 @@ public class ReduceReportingFrequency {
     public void reset() {
         lastReport = System.currentTimeMillis() - 200;
     }
+
+    /**
+     * 返回尚未报告的累积字节数，并重置累积器。
+     * 用于下载完成时，确保所有字节都被报告。
+     *
+     * @return 尚未报告的字节数
+     */
+    public long flush() {
+        long value = accumulated;
+        accumulated = 0;
+        return value;
+    }
 }
