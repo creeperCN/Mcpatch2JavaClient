@@ -4,12 +4,45 @@ import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
 
 /**
  * 文件 hash 计算类，所有计算文件哈希值时都会调用此函数，可以在此函数中替换任意哈希算法
  */
 public class HashUtility {
+    /**
+     * 计算一个文件的 SHA-256 校验值（线程安全：每次调用创建新的 MessageDigest 实例）
+     *
+     * @param file 要计算校验值的文件路径
+     * @return SHA-256 十六进制小写字符串
+     */
+    public static String calculateSHA256(Path file) throws IOException {
+        MessageDigest digest;
+        try {
+            digest = MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException e) {
+            throw new IOException("SHA-256 算法不可用", e);
+        }
+
+        byte[] buf = new byte[128 * 1024];
+
+        try (BufferedInputStream stream = new BufferedInputStream(Files.newInputStream(file))) {
+            int read;
+            while ((read = stream.read(buf)) != -1) {
+                digest.update(buf, 0, read);
+            }
+        }
+
+        byte[] hashBytes = digest.digest();
+        StringBuilder sb = new StringBuilder(hashBytes.length * 2);
+        for (byte b : hashBytes) {
+            sb.append(String.format("%02x", b));
+        }
+        return sb.toString();
+    }
+
     /**
      * 计算一个文件的校验值（线程安全：每次调用创建新的CRC实例）
      */

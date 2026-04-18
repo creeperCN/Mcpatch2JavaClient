@@ -243,13 +243,25 @@ public class ParallelDownloader {
             // 修复文件 mtime
             Files.setLastModifiedTime(f.tempPath, FileTime.from(f.modified, TimeUnit.SECONDS));
 
-            // 校验文件hash
-            String hash = HashUtility.calculateHash(f.tempPath);
+            // 校验文件完整性（SHA-256 优先，回退到 CRC 校验）
+            if (f.sha256 != null && !f.sha256.isEmpty()) {
+                // 优先使用 SHA-256 校验
+                String actualSHA256 = HashUtility.calculateSHA256(f.tempPath);
 
-            if (!hash.equals(f.hash)) {
-                throw new McpatchBusinessException(
-                    String.format("临时文件校验失败，预期 %s，实际 %s，文件路径 %s",
-                        f.hash, hash, f.tempPath.toFile().getAbsolutePath()));
+                if (!actualSHA256.equals(f.sha256)) {
+                    throw new McpatchBusinessException(
+                        String.format("临时文件 SHA-256 校验失败，预期 %s，实际 %s，文件路径 %s",
+                            f.sha256, actualSHA256, f.tempPath.toFile().getAbsolutePath()));
+                }
+            } else {
+                // 服务端未提供 SHA-256 时，回退到 CRC 校验
+                String hash = HashUtility.calculateHash(f.tempPath);
+
+                if (!hash.equals(f.hash)) {
+                    throw new McpatchBusinessException(
+                        String.format("临时文件 CRC 校验失败，预期 %s，实际 %s，文件路径 %s",
+                            f.hash, hash, f.tempPath.toFile().getAbsolutePath()));
+                }
             }
         }
     }

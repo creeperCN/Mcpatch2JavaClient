@@ -9,6 +9,7 @@ import com.github.balloonupdate.mcpatch.client.network.ServerSession;
 import com.github.balloonupdate.mcpatch.client.network.Servers;
 import com.github.balloonupdate.mcpatch.client.ui.McPatchWindow;
 import com.github.balloonupdate.mcpatch.client.utils.BytesUtils;
+import com.github.balloonupdate.mcpatch.client.utils.HashUtility;
 import com.github.balloonupdate.mcpatch.client.utils.PathUtility;
 import com.github.balloonupdate.mcpatch.client.utils.SpeedStat;
 
@@ -18,11 +19,13 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.FileTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -123,7 +126,17 @@ public class ChunkedDownloader {
         // 3. 合并分片
         mergeChunks(file, chunks, filename);
 
-        // 4. 清理临时分片文件
+        // 4. 校验合并后的文件完整性
+        verifyMergedFile(file, filename);
+
+        // 5. 修复文件修改时间
+        try {
+            Files.setLastModifiedTime(file.tempPath, FileTime.from(file.modified, TimeUnit.SECONDS));
+        } catch (IOException e) {
+            Log.warn("修复文件修改时间失败: " + file.path);
+        }
+
+        // 6. 清理临时分片文件
         cleanupChunks(chunks);
 
         Log.info("分片下载完成: " + file.path);
@@ -313,7 +326,54 @@ public class ChunkedDownloader {
             throw new McpatchBusinessException("合并分片失败: " + file.path, e);
         }
 
+        // 校验合并后的文件大小
+        try {
+            long actualSize = Files.size(file.tempPath);
+            if (actualSize != file.length) {
+                throw new McpatchBusinessException(
+                        String.format("合并后文件大小不匹配: 预期 %d, 实际 %d, 文件 %s",
+                                file.length, actualSize, file.path));
+            }
+        } catch (IOException e) {
+            throw new McpatchBusinessException("无法读取合并后文件大小: " + file.path, e);
+        }
+
         Log.debug("合并完成: " + file.path);
+    }
+
+    /**
+     * 校验合并后文件的完整性（SHA-256 优先，回退到 CRC 校验）
+     */
+    private void verifyMergedFile(TempUpdateFile file, String filename) throws McpatchBusinessException {
+        Log.debug("开始校验合并文件: " + file.path);
+
+        // 优先使用 SHA-256 校验
+        if (file.sha256 != null && !file.sha256.isEmpty()) {
+            try {
+                String actualSHA256 = HashUtility.calculateSHA256(file.tempPath);
+                if (!actualSHA256.equals(file.sha256)) {
+                    throw new McpatchBusinessException(
+                            String.format("分片下载文件 SHA-256 校验失败: 预期 %s, 实际 %s, 文件路径 %s",
+                                    file.sha256, actualSHA256, file.tempPath.toFile().getAbsolutePath()));
+                }
+                Log.debug("SHA-256 校验通过: " + file.path);
+            } catch (IOException e) {
+                throw new McpatchBusinessException("计算文件 SHA-256 时出错: " + file.path, e);
+            }
+        } else {
+            // 服务端未提供 SHA-256 时，回退到 CRC 校验
+            try {
+                String actualHash = HashUtility.calculateHash(file.tempPath);
+                if (!actualHash.equals(file.hash)) {
+                    throw new McpatchBusinessException(
+                            String.format("分片下载文件 CRC 校验失败: 预期 %s, 实际 %s, 文件路径 %s",
+                                    file.hash, actualHash, file.tempPath.toFile().getAbsolutePath()));
+                }
+                Log.debug("CRC 校验通过: " + file.path);
+            } catch (IOException e) {
+                throw new McpatchBusinessException("计算文件 CRC 校验值时出错: " + file.path, e);
+            }
+        }
     }
 
     /**
