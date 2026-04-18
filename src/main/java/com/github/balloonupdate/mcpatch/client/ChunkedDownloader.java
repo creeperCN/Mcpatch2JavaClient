@@ -377,7 +377,11 @@ public class ChunkedDownloader {
                             // 失败回退进度
                             long toFallback = bytesCounter.get();
                             totalDownloaded.addAndGet(-toFallback);
-                            chunk.downloadedBytes.addAndGet(-toFallback);
+                            // 重置分片已下载字节为0（而非 addAndGet(-toFallback)，
+                            // 因为 downloadedBytes 是通过 set(bytesReceived) 设置的，
+                            // 而 bytesCounter 可能小于 bytesReceived（ReduceReportingFrequency 限频），
+                            // 使用 addAndGet 会导致残留字节，使文件进度计算偏高）
+                            chunk.downloadedBytes.set(0);
                             bytesCounter.set(0);
 
                             // 重新计算单文件进度
@@ -561,15 +565,16 @@ public class ChunkedDownloader {
 
         final long br = bytesRead;
         final long tb = totalFileBytes;
-        final long dl = totalDownloaded.get();
         final String speedStr = speed.sampleSpeed2();
         final String displayName = getDisplayName(filename);
 
         SwingUtilities.invokeLater(() -> {
             window.setFileProgress(displayName, br, tb);
             // 校验期间也要更新总进度，避免UI冻结
-            String eta = calculateETA(dl, totalBytes);
-            window.setTotalProgress(dl, totalBytes, speedStr, eta);
+            // 重新读取 totalDownloaded 以避免 EDT 队列中旧值覆盖新值
+            long currentDl = totalDownloaded.get();
+            String eta = calculateETA(currentDl, totalBytes);
+            window.setTotalProgress(currentDl, totalBytes, speedStr, eta);
         });
     }
 
@@ -579,12 +584,13 @@ public class ChunkedDownloader {
     private void forceUpdateTotalProgress() {
         if (window == null) return;
 
-        final long dl = totalDownloaded.get();
         final String speedStr = speed.sampleSpeed2();
-        String eta = calculateETA(dl, totalBytes);
 
         SwingUtilities.invokeLater(() -> {
-            window.setTotalProgress(dl, totalBytes, speedStr, eta);
+            // 重新读取 totalDownloaded 以避免 EDT 队列中旧值覆盖新值
+            long currentDl = totalDownloaded.get();
+            String eta = calculateETA(currentDl, totalBytes);
+            window.setTotalProgress(currentDl, totalBytes, speedStr, eta);
         });
     }
 
@@ -631,7 +637,6 @@ public class ChunkedDownloader {
         }
         uiTimer.set(now);
 
-        final long dl = totalDownloaded.get();
         final String speedStr = speed.sampleSpeed2();
         final long fd = fileDownloaded;
         final String displayName = getDisplayName(filename);
@@ -640,8 +645,10 @@ public class ChunkedDownloader {
             // 更新单文件进度
             window.setFileProgress(displayName, fd, fileSize);
             // 更新总进度 + 速度 + ETA
-            String eta = calculateETA(dl, totalBytes);
-            window.setTotalProgress(dl, totalBytes, speedStr, eta);
+            // 重新读取 totalDownloaded 以避免 EDT 队列中旧值覆盖新值
+            long currentDl = totalDownloaded.get();
+            String eta = calculateETA(currentDl, totalBytes);
+            window.setTotalProgress(currentDl, totalBytes, speedStr, eta);
         });
     }
 

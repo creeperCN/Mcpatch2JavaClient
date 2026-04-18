@@ -303,7 +303,6 @@ public class ParallelDownloader {
                         if (now2 - uiTimer.get() > 300) {
                             uiTimer.set(now2);
 
-                            final long dl = totalDownloaded.get();
                             final String speedStr = speed.sampleSpeed2();
                             final long fileDownloaded = bytesCounter.get();
                             final boolean isFocus = isFocusFile(filename);
@@ -315,9 +314,10 @@ public class ParallelDownloader {
                                     window.setFileProgress(displayName, fileDownloaded, f.length);
                                 }
 
-                                // 总进度始终更新
-                                String eta = calculateETA(dl, totalBytes);
-                                window.setTotalProgress(dl, totalBytes, speedStr, eta);
+                                // 总进度始终更新（重新读取 totalDownloaded 以避免 EDT 队列中旧值覆盖新值）
+                                long currentDl = totalDownloaded.get();
+                                String eta = calculateETA(currentDl, totalBytes);
+                                window.setTotalProgress(currentDl, totalBytes, speedStr, eta);
                             });
                         }
                     }
@@ -330,7 +330,6 @@ public class ParallelDownloader {
                     bytesCounter.set(0);
 
                     if (window != null) {
-                        final long dl = totalDownloaded.get();
                         final String speedStr = speed.sampleSpeed2();
                         final boolean isFocus = isFocusFile(filename);
 
@@ -339,8 +338,10 @@ public class ParallelDownloader {
                                 String displayName = getDisplayName(filename);
                                 window.setFileProgress(displayName, 0, f.length);
                             }
-                            String eta = calculateETA(dl, totalBytes);
-                            window.setTotalProgress(dl, totalBytes, speedStr, eta);
+                            // 重新读取 totalDownloaded 以避免 EDT 队列中旧值覆盖新值
+                            long currentDl = totalDownloaded.get();
+                            String eta = calculateETA(currentDl, totalBytes);
+                            window.setTotalProgress(currentDl, totalBytes, speedStr, eta);
                         });
                     }
                 }
@@ -400,7 +401,6 @@ public class ParallelDownloader {
 
         final long br = bytesRead;
         final long tb = totalFileBytes;
-        final long dl = totalDownloaded.get();
         final String speedStr = speed.sampleSpeed2();
         final boolean isFocus = isFocusFile(filename);
         // 校验阶段的显示名称附加"(校验中)"后缀
@@ -412,8 +412,10 @@ public class ParallelDownloader {
                 window.setFileProgress(displayName, br, tb);
             }
             // 校验期间也要更新总进度，避免UI冻结
-            String eta = calculateETA(dl, totalBytes);
-            window.setTotalProgress(dl, totalBytes, speedStr, eta);
+            // 重新读取 totalDownloaded 以避免 EDT 队列中旧值覆盖新值
+            long currentDl = totalDownloaded.get();
+            String eta = calculateETA(currentDl, totalBytes);
+            window.setTotalProgress(currentDl, totalBytes, speedStr, eta);
         });
     }
 
@@ -423,12 +425,13 @@ public class ParallelDownloader {
     private void forceUpdateTotalProgress() {
         if (window == null) return;
 
-        final long dl = totalDownloaded.get();
         final String speedStr = speed.sampleSpeed2();
-        String eta = calculateETA(dl, totalBytes);
 
         SwingUtilities.invokeLater(() -> {
-            window.setTotalProgress(dl, totalBytes, speedStr, eta);
+            // 重新读取 totalDownloaded 以避免 EDT 队列中旧值覆盖新值
+            long currentDl = totalDownloaded.get();
+            String eta = calculateETA(currentDl, totalBytes);
+            window.setTotalProgress(currentDl, totalBytes, speedStr, eta);
         });
     }
 
