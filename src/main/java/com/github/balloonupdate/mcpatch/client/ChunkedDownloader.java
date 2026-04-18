@@ -319,6 +319,13 @@ public class ChunkedDownloader {
 
         Log.debug("开始合并分片: " + file.path);
 
+        // 更新单文件进度条为合并状态
+        if (window != null) {
+            SwingUtilities.invokeLater(() -> {
+                window.setFileProgress(filename + " (合并中)", 0, file.length);
+            });
+        }
+
         // 确保目标目录存在
         try {
             Files.createDirectories(file.tempPath.getParent());
@@ -327,6 +334,8 @@ public class ChunkedDownloader {
         }
 
         // 使用 NIO FileChannel 合并，性能更好
+        long totalMerged = 0;
+
         try (FileChannel targetChannel = FileChannel.open(file.tempPath,
                 StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING)) {
 
@@ -334,9 +343,6 @@ public class ChunkedDownloader {
             targetChannel.truncate(file.length);
 
             for (FileChunk chunk : chunks) {
-                // 更新UI显示合并进度
-                updateUI(filename + " (合并中)");
-
                 try (FileChannel sourceChannel = FileChannel.open(chunk.tempPath, StandardOpenOption.READ)) {
                     // 使用 transferTo 高效复制
                     long transferred = 0;
@@ -353,6 +359,16 @@ public class ChunkedDownloader {
                                 String.format("分片 %d 合并不完整: 预期 %d, 实际 %d",
                                         chunk.index, chunk.length, transferred));
                     }
+
+                    totalMerged += transferred;
+                }
+
+                // 更新合并进度
+                final long merged = totalMerged;
+                if (window != null) {
+                    SwingUtilities.invokeLater(() -> {
+                        window.setFileProgress(filename + " (合并中)", merged, file.length);
+                    });
                 }
             }
 
@@ -383,6 +399,13 @@ public class ChunkedDownloader {
      */
     private void verifyMergedFile(TempUpdateFile file, String filename) throws McpatchBusinessException {
         Log.debug("开始校验合并文件: " + file.path);
+
+        // 更新单文件进度条为校验状态
+        if (window != null) {
+            SwingUtilities.invokeLater(() -> {
+                window.setFileProgress(filename + " (校验中)", 0, file.length);
+            });
+        }
 
         // 优先使用 SHA-256 校验
         if (file.sha256 != null && !file.sha256.isEmpty()) {

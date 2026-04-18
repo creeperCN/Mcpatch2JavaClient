@@ -266,6 +266,13 @@ public class ParallelDownloader {
             // 修复文件 mtime
             Files.setLastModifiedTime(f.tempPath, FileTime.from(f.modified, TimeUnit.SECONDS));
 
+            // 显示校验状态
+            if (window != null) {
+                SwingUtilities.invokeLater(() -> {
+                    window.setFileProgress(filename + " (校验中)", f.length, f.length);
+                });
+            }
+
             // 校验文件完整性（SHA-256 优先，回退到 CRC 校验）
             if (f.sha256 != null && !f.sha256.isEmpty()) {
                 // 优先使用 SHA-256 校验
