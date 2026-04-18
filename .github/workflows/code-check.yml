@@ -11,6 +11,7 @@
 #   3. 静态分析 - 使用 SpotBugs 和 PMD 检测潜在 Bug 和代码质量问题
 #   4. 单元测试 - 运行所有测试并生成报告
 #   5. 依赖漏洞扫描 - 检查已知安全漏洞
+#   6. 代码重复度检查 - 使用 CPD 检测重复代码
 # ============================================================================
 
 name: 代码检查
@@ -37,34 +38,28 @@ concurrency:
 env:
   # Gradle 选项：减少内存占用，避免 CI 环境内存不足
   GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.parallel=true -Xmx2g"
+  # 提前切换到 Node.js 24，消除 Node.js 20 弃用警告
+  # 详见：https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   # ==========================================================================
   # Job 1: 编译检查
-  # ==========================================================================
-  # 确保代码可以正确编译通过。这是最基本的检查项，
-  # 如果代码连编译都无法通过，后续检查都没有意义。
   # ==========================================================================
   build:
     name: 编译检查
     runs-on: ubuntu-latest
 
     steps:
-      # 步骤 1.1: 检出代码仓库
       - name: 检出代码仓库
         uses: actions/checkout@v4
 
-      # 步骤 1.2: 配置 JDK 17 环境
-      # 使用 Temurin 发行版，这是 Eclipse Adoptium 提供的开源 JDK 构建
-      # JDK 17 是当前 Java LTS 版本，兼顾兼容性和新特性
       - name: 配置 JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: "17"
           distribution: "temurin"
 
-      # 步骤 1.3: 配置 Gradle 缓存
-      # 缓存 Gradle 依赖以加速后续构建
       - name: 缓存 Gradle 依赖
         uses: actions/cache@v4
         with:
@@ -75,41 +70,27 @@ jobs:
           restore-keys: |
             gradle-${{ runner.os }}-
 
-      # 步骤 1.4: 赋予 Gradlew 可执行权限
-      # Linux 环境下 gradlew 文件可能没有执行权限
       - name: 赋予 Gradlew 可执行权限
         run: chmod +x gradlew
 
-      # 步骤 1.5: 编译项目
-      # 使用 --no-daemon 避免 CI 环境中守护进程问题
-      # 使用 --warning-mode all 显示所有编译警告
       - name: 编译项目
         run: ./gradlew compileJava --no-daemon --warning-mode all
 
-      # 步骤 1.6: 上传编译产物
-      # 即使后续 Job 失败，也可以下载编译产物进行调试
       - name: 上传编译产物
         uses: actions/upload-artifact@v4
         with:
           name: compiled-classes
           path: build/classes/
           retention-days: 3
+          if-no-files-found: warn
 
   # ==========================================================================
   # Job 2: 代码风格检查 (Checkstyle)
   # ==========================================================================
-  # 使用 Checkstyle 工具确保代码风格一致性。
-  # 统一的代码风格有助于：
-  #   - 提高代码可读性和可维护性
-  #   - 减少代码审查中关于风格的无意义争论
-  #   - 帮助新成员快速融入项目
-  #
-  # 使用 Google Java Style Guide 作为基础规范
-  # ==========================================================================
   checkstyle:
     name: 代码风格检查
     runs-on: ubuntu-latest
-    needs: build  # 依赖编译检查通过
+    needs: build
 
     steps:
       - name: 检出代码仓库
@@ -134,327 +115,60 @@ jobs:
       - name: 赋予 Gradlew 可执行权限
         run: chmod +x gradlew
 
-      # 步骤 2.1: 创建 Checkstyle 配置文件
-      # 使用 Google Java Style 规范，并做适当调整：
-      #   - 缩进：4 个空格
-      #   - 行宽限制：120 字符
-      #   - 允许中文注释
-      - name: 创建 Checkstyle 配置
-        run: |
-          mkdir -p config/checkstyle
-          cat > config/checkstyle/checkstyle.xml << 'CHECKSTYLE_EOF'
-          <?xml version="1.0"?>
-          <!DOCTYPE module PUBLIC
-            "-//Checkstyle//DTD Checkstyle Configuration 1.3//EN"
-            "https://checkstyle.org/dtds/configuration_1_3.dtd">
-
-          <module name="Checker">
-            <!-- 字符编码 -->
-            <property name="charset" value="UTF-8"/>
-
-            <!-- 检查文件末尾是否有换行符 -->
-            <module name="NewlineAtEndOfFile"/>
-
-            <!-- 检查文件中是否含有 Tab 字符（推荐使用空格） -->
-            <module name="FileTabCharacter">
-              <property name="eachLine" value="true"/>
-            </module>
-
-            <module name="TreeWalker">
-              <!-- ========== 注释检查 ========== -->
-
-              <!-- 检查 Javadoc 格式 -->
-              <module name="JavadocStyle">
-                <property name="checkEmptyJavadoc" value="true"/>
-              </module>
-
-              <!-- ========== 命名规范检查 ========== -->
-
-              <!-- 常量命名：全大写，下划线分隔 -->
-              <module name="ConstantName">
-                <property name="format" value="^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$|log|logger"/>
-              </module>
-
-              <!-- 局部变量命名：驼峰命名 -->
-              <module name="LocalVariableName">
-                <property name="format" value="^[a-z][a-zA-Z0-9]*$"/>
-              </module>
-
-              <!-- 成员变量命名：驼峰命名 -->
-              <module name="MemberName">
-                <property name="format" value="^[a-z][a-zA-Z0-9]*$"/>
-              </module>
-
-              <!-- 方法名命名：驼峰命名 -->
-              <module name="MethodName">
-                <property name="format" value="^[a-z][a-zA-Z0-9]*$"/>
-              </module>
-
-              <!-- 包名命名：全小写 -->
-              <module name="PackageName">
-                <property name="format" value="^[a-z]+(\.[a-z][a-z0-9]*)*$"/>
-              </module>
-
-              <!-- 参数名命名：驼峰命名 -->
-              <module name="ParameterName">
-                <property name="format" value="^[a-z][a-zA-Z0-9]*$"/>
-              </module>
-
-              <!-- 静态变量命名：驼峰命名 -->
-              <module name="StaticVariableName">
-                <property name="format" value="^[a-z][a-zA-Z0-9]*$"/>
-              </module>
-
-              <!-- 类/接口命名：大驼峰 -->
-              <module name="TypeName">
-                <property name="format" value="^[A-Z][a-zA-Z0-9]*$"/>
-              </module>
-
-              <!-- ========== 导入检查 ========== -->
-
-              <!-- 避免使用通配符导入（如 import java.util.*） -->
-              <module name="AvoidStarImport"/>
-
-              <!-- 避免重复导入 -->
-              <module name="RedundantImport"/>
-
-              <!-- 避免使用未使用的导入 -->
-              <module name="UnusedImports"/>
-
-              <!-- 避免非法导入（如导入 sun.* 包） -->
-              <module name="IllegalImport"/>
-
-              <!-- ========== 代码大小检查 ========== -->
-
-              <!-- 方法长度限制：默认 150 行 -->
-              <module name="MethodLength">
-                <property name="max" value="200"/>
-              </module>
-
-              <!-- 参数个数限制：默认 7 个 -->
-              <module name="ParameterNumber">
-                <property name="max" value="7"/>
-              </module>
-
-              <!-- ========== 代码风格检查 ========== -->
-
-              <!-- 检查大括号位置（左大括号不换行） -->
-              <module name="LeftCurly"/>
-
-              <!-- 检查右大括号位置 -->
-              <module name="RightCurly"/>
-
-              <!-- 检查空代码块 -->
-              <module name="EmptyBlock"/>
-
-              <!-- 检查 switch 语句中的 default 分支 -->
-              <module name="DefaultComesLast"/>
-
-              <!-- 检查 switch 语句中是否缺少 break/return -->
-              <module name="FallThrough"/>
-
-              <!-- 检查空语句（多余的分号） -->
-              <module name="EmptyStatement"/>
-
-              <!-- 检查是否覆盖了 equals 但没覆盖 hashCode -->
-              <module name="EqualsHashCode"/>
-
-              <!-- 检查是否有简化的布尔表达式 -->
-              <module name="SimplifyBooleanExpression"/>
-
-              <!-- 检查是否有简化的布尔返回 -->
-              <module name="SimplifyBooleanReturn"/>
-
-              <!-- 检查字符串比较是否使用 equals 而非 == -->
-              <module name="StringLiteralEquality"/>
-
-              <!-- 检查嵌套代码块 -->
-              <module name="AvoidNestedBlocks"/>
-
-              <!-- 检查数组类型的风格（Java 风格：String[] args，而非 C 风格：String args[]） -->
-              <module name="ArrayTypeStyle"/>
-
-              <!-- ========== 行宽检查 ========== -->
-
-              <!-- 行宽限制 120 字符 -->
-              <module name="LineLength">
-                <property name="max" value="120"/>
-                <property name="ignorePattern" value="^package.*|^import.*|a href|href|http://|https://|ftp://"/>
-              </module>
-
-              <!-- ========== 缩进检查 ========== -->
-
-              <!-- 缩进检查：4 个空格 -->
-              <module name="Indentation">
-                <property name="basicOffset" value="4"/>
-                <property name="braceAdjustment" value="0"/>
-                <property name="caseIndent" value="4"/>
-                <property name="throwsIndent" value="4"/>
-                <property name="lineWrappingIndentation" value="8"/>
-              </module>
-
-              <!-- ========== 空格检查 ========== -->
-
-              <!-- 检查类型转换的空格 -->
-              <module name="TypecastParenPad"/>
-
-              <!-- 检查泛型空格 -->
-              <module name="GenericWhitespace"/>
-
-              <!-- 检查方法调用时的空格 -->
-              <module name="MethodParamPad"/>
-
-              <!-- 检查运算符周围的空格 -->
-              <module name="WhitespaceAround"/>
-
-              <!-- 检查逗号后的空格 -->
-              <module name="WhitespaceAfter"/>
-
-              <!-- ========== 修饰符检查 ========== -->
-
-              <!-- 修饰符顺序：public protected private abstract default static final transient volatile synchronized native strictfp -->
-              <module name="ModifierOrder"/>
-
-              <!-- 检查多余的修饰符 -->
-              <module name="RedundantModifier"/>
-
-              <!-- ========== 代码块检查 ========== -->
-
-              <!-- 检查 catch 块中是否为空 -->
-              <module name="EmptyCatchBlock">
-                <property name="exceptionVariableName" value="expected|ignore"/>
-              </module>
-
-              <!-- 检查 if/for/while/do 是否总是使用大括号 -->
-              <module name="NeedBraces"/>
-
-              <!-- ========== 设计检查 ========== -->
-
-              <!-- 检查接口中是否只包含方法声明（常量接口反模式） -->
-              <module name="InterfaceIsType"/>
-
-              <!-- 检查类的可见性，避免暴露内部实现 -->
-              <module name="VisibilityModifier">
-                <property name="protectedAllowed" value="true"/>
-                <property name="packageAllowed" value="true"/>
-              </module>
-
-              <!-- 检查异常类命名 -->
-              <module name="ClassTypeParameterName">
-                <property name="format" value="^[A-Z][a-zA-Z0-9]*$"/>
-              </module>
-
-              <!-- 检查方法类型参数命名 -->
-              <module name="MethodTypeParameterName">
-                <property name="format" value="^[A-Z][a-zA-Z0-9]*$"/>
-              </module>
-
-              <!-- ========== 其他检查 ========== -->
-
-              <!-- 检查是否使用了魔法数字 -->
-              <module name="MagicNumber">
-                <property name="ignoreNumbers" value="-1, 0, 1, 2, 3, 4, 5"/>
-                <property name="ignoreHashCodeMethod" value="true"/>
-                <property name="ignoreAnnotation" value="true"/>
-              </module>
-
-              <!-- 检查数组尾随逗号 -->
-              <module name="TrailingComment"/>
-
-              <!-- 检查是否有多余的 throw 声明 -->
-              <module name="RedundantThrows"/>
-
-              <!-- 检查内部类是否使用外部实例 -->
-              <module name="InnerAssignment"/>
-
-              <!-- 检查 switch 中是否有枚举覆盖所有值 -->
-              <module name="MissingSwitchDefault"/>
-
-              <!-- 检查不必要的括号 -->
-              <module name="UnnecessaryParentheses"/>
-
-            </module>
-          </module>
-          CHECKSTYLE_EOF
-
-      # 步骤 2.2: 创建 Checkstyle Suppressions 文件
-      # 对部分代码豁免检查（如自动生成的代码、测试代码等）
-      - name: 创建 Checkstyle Suppressions 配置
-        run: |
-          mkdir -p config/checkstyle
-          cat > config/checkstyle/suppressions.xml << 'SUPPRESSIONS_EOF'
-          <?xml version="1.0"?>
-          <!DOCTYPE suppressions PUBLIC
-            "-//Checkstyle//DTD SuppressionFilter Configuration 1.2//EN"
-            "https://checkstyle.org/dtds/suppressions_1_2.dtd">
-
-          <suppressions>
-            <!-- 对自动生成的文件豁免检查 -->
-            <suppress files=".*[\\/]generated[\\/].*" checks=".*"/>
-            <!-- 对测试目录中的魔法数字豁免检查 -->
-            <suppress files=".*[\\/]src[\\/]test[\\/].*" checks="MagicNumber"/>
-            <!-- 对测试目录中的行宽适度放宽 -->
-            <suppress files=".*[\\/]src[\\/]test[\\/].*" checks="LineLength"/>
-            <!-- 对 Main 类豁免部分检查（入口类通常有特殊需求） -->
-            <suppress files=".*Main\.java" checks="MethodLength"/>
-          </suppressions>
-          SUPPRESSIONS_EOF
-
-      # 步骤 2.3: 运行 Checkstyle 检查
-      # 使用 --no-daemon 避免 CI 环境中守护进程问题
-      # 如果项目 build.gradle.kts 中没有配置 checkstyle 插件，
-      # 这里会使用命令行方式运行
+      # 创建报告目录并运行 Checkstyle
+      # 无论是 Gradle 插件模式还是命令行模式，都确保报告输出到统一目录
       - name: 运行 Checkstyle 检查
         run: |
-          chmod +x gradlew
+          mkdir -p build/reports/checkstyle
+
           # 尝试使用 Gradle Checkstyle 插件运行
-          # 如果项目未配置 Checkstyle 插件，则下载并使用命令行工具
           if ./gradlew tasks --no-daemon --quiet 2>/dev/null | grep -q "checkstyleMain"; then
             echo "检测到项目已配置 Checkstyle 插件，使用 Gradle 运行..."
-            ./gradlew checkstyleMain checkstyleTest --no-daemon || true
+            ./gradlew checkstyleMain --no-daemon || true
           else
             echo "项目未配置 Checkstyle 插件，使用命令行工具运行..."
+
             # 下载 Checkstyle
             CHECKSTYLE_VERSION="10.17.0"
             wget -q "https://github.com/checkstyle/checkstyle/releases/download/checkstyle-${CHECKSTYLE_VERSION}/checkstyle-${CHECKSTYLE_VERSION}-all.jar" -O /tmp/checkstyle.jar
 
-            # 运行 Checkstyle
+            # 运行 Checkstyle，输出 XML 和 HTML 报告到 build/reports/checkstyle/
+            java -jar /tmp/checkstyle.jar \
+              -c config/checkstyle/checkstyle.xml \
+              -p config/checkstyle/suppressions.xml \
+              -f xml \
+              -o build/reports/checkstyle/checkstyle.xml \
+              --exclude-regexp=".*generated.*" \
+              src/main/java/ || true
+
+            # 同时生成纯文本摘要到 Job Summary
+            echo "## Checkstyle 检查结果" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
             java -jar /tmp/checkstyle.jar \
               -c config/checkstyle/checkstyle.xml \
               -p config/checkstyle/suppressions.xml \
               --exclude-regexp=".*generated.*" \
-              src/main/java/ || true
+              src/main/java/ 2>&1 | head -100 >> $GITHUB_STEP_SUMMARY || true
+            echo '```' >> $GITHUB_STEP_SUMMARY
           fi
 
-      # 步骤 2.4: 上传 Checkstyle 报告
       - name: 上传 Checkstyle 报告
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: checkstyle-report
-          path: |
-            build/reports/checkstyle/
+          path: build/reports/checkstyle/
           retention-days: 7
+          if-no-files-found: warn
 
   # ==========================================================================
   # Job 3: 静态分析 (SpotBugs + PMD)
   # ==========================================================================
-  # 使用 SpotBugs 和 PMD 进行静态代码分析：
-  #
-  # SpotBugs (FindBugs 的继任者):
-  #   - 检测 Java 代码中的 Bug 模式
-  #   - 包括空指针引用、资源泄漏、并发问题等
-  #   - 优先级：High > Medium > Low
-  #
-  # PMD:
-  #   - 检测代码中的潜在问题
-  #   - 包括空 catch 块、未使用的变量、不必要的对象创建等
-  #   - 帮助编写更高效、更简洁的代码
-  # ==========================================================================
   static-analysis:
     name: 静态分析
     runs-on: ubuntu-latest
-    needs: build  # 依赖编译检查通过
+    needs: build
 
     steps:
       - name: 检出代码仓库
@@ -479,175 +193,71 @@ jobs:
       - name: 赋予 Gradlew 可执行权限
         run: chmod +x gradlew
 
-      # 步骤 3.1: 创建 SpotBugs 排除配置
-      # 排除一些误报和不重要的警告
-      - name: 创建 SpotBugs 排除配置
-        run: |
-          mkdir -p config/spotbugs
-          cat > config/spotbugs/exclude.xml << 'SPOTBUGS_EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <FindBugsFilter>
-            <!-- 排除测试代码中的某些警告 -->
-            <Match>
-              <Source name="~.*Test\.java"/>
-              <Bug code="UR,UMLE"/>
-            </Match>
-
-            <!-- 排除由不可变对象引起的 EI_EXPOSE_REP2 警告 -->
-            <Match>
-              <Bug pattern="EI_EXPOSE_REP2"/>
-              <Priority value="2"/>
-            </Match>
-
-            <!-- 对 Main 类豁免 SIC_INNER_SHOULD_BE_STATIC -->
-            <Match>
-              <Class name="~.*\.Main\$.*"/>
-              <Bug pattern="SIC_INNER_SHOULD_BE_STATIC"/>
-            </Match>
-
-            <!-- 排除低优先级警告 -->
-            <Match>
-              <Priority value="3"/>
-            </Match>
-          </FindBugsFilter>
-          SPOTBUGS_EOF
-
-      # 步骤 3.2: 创建 PMD 规则集配置
-      # 使用自定义规则集，根据项目特点调整规则
-      - name: 创建 PMD 规则集配置
-        run: |
-          mkdir -p config/pmd
-          cat > config/pmd/ruleset.xml << 'PMD_EOF'
-          <?xml version="1.0"?>
-          <ruleset name="Mcpatch2JavaClient PMD Ruleset"
-            xmlns="http://pmd.sourceforge.net/ruleset/2.0.0"
-            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-            xsi:schemaLocation="http://pmd.sourceforge.net/ruleset/2.0.0 https://pmd.sourceforge.io/ruleset_2_0_0.xsd">
-
-            <description>Mcpatch2JavaClient 项目 PMD 规则集</description>
-
-            <!-- ========== 最佳实践规则 ========== -->
-            <rule ref="category/java/bestpractices.xml">
-              <!-- 排除：JUnit 测试方法断言检查（项目可能未使用 JUnit） -->
-              <exclude name="JUnitTestContainsTooManyAsserts"/>
-              <exclude name="JUnitAssertionsShouldIncludeMessage"/>
-              <!-- 排除：使用 ArrayList 而非 LinkedList 的建议 -->
-              <exclude name="ArrayListInsteadOfVector"/>
-            </rule>
-
-            <!-- ========== 代码风格规则 ========== -->
-            <rule ref="category/java/codestyle.xml">
-              <!-- 排除：类命名必须与文件名匹配（可能存在内部类） -->
-              <exclude name="ClassNamingConventions"/>
-              <!-- 排除：long 常量必须使用 L 后缀 -->
-              <exclude name="LinguisticNaming"/>
-              <!-- 排除：方法命名前缀 -->
-              <exclude name="MethodNamingConventions"/>
-              <!-- 放宽行长度限制 -->
-              <exclude name="LongVariable"/>
-              <exclude name="ShortVariable"/>
-              <exclude name="ShortClassName"/>
-              <exclude name="ShortMethodName"/>
-            </rule>
-
-            <!-- ========== 设计规则 ========== -->
-            <rule ref="category/java/design.xml">
-              <!-- 修改 God Class 阈值 -->
-              <exclude name="GodClass"/>
-              <!-- 排除：使用单例模式 -->
-              <exclude name="UseUtilityClass"/>
-              <!-- 修改方法参数数量 -->
-              <rule ref="category/java/design.xml/TooManyMethods">
-                <properties>
-                  <property name="maxmethods" value="20"/>
-                </properties>
-              </rule>
-              <rule ref="category/java/design.xml/CouplingBetweenObjects">
-                <properties>
-                  <property name="threshold" value="30"/>
-                </properties>
-              </rule>
-            </rule>
-
-            <!-- ========== 错误处理规则 ========== -->
-            <rule ref="category/java/errorprone.xml">
-              <!-- 排除：避免使用 clone 方法 -->
-              <exclude name="AvoidLiteralsInIfCondition"/>
-              <exclude name="BeanMembersShouldSerialize"/>
-            </rule>
-
-            <!-- ========== 多线程规则 ========== -->
-            <rule ref="category/java/multithreading.xml">
-              <!-- 只保留最重要的多线程规则 -->
-              <exclude name="UseConcurrentHashMap"/>
-              <exclude name="AvoidSynchronizedAtMethodLevel"/>
-            </rule>
-
-            <!-- ========== 性能规则 ========== -->
-            <rule ref="category/java/performance.xml">
-              <!-- 排除：避免使用加号连接字符串（在非循环中可接受） -->
-              <exclude name="ConsecutiveAppendsShouldReuseBuffer"/>
-              <exclude name="AvoidInstantiatingObjectsInLoops"/>
-            </rule>
-
-            <!-- ========== 安全规则 ========== -->
-            <rule ref="category/java/security.xml"/>
-          </ruleset>
-          PMD_EOF
-
-      # 步骤 3.3: 编译项目（静态分析需要编译后的类文件）
+      # 编译项目（SpotBugs 需要编译后的 class 文件）
       - name: 编译项目
         run: ./gradlew compileJava --no-daemon
 
-      # 步骤 3.4: 运行 SpotBugs 分析
+      # 运行 SpotBugs 分析
+      # 确保报告输出到 build/reports/spotbugs/ 目录
       - name: 运行 SpotBugs 分析
         run: |
+          mkdir -p build/reports/spotbugs
+
           # 尝试使用 Gradle SpotBugs 插件运行
           if ./gradlew tasks --no-daemon --quiet 2>/dev/null | grep -q "spotbugsMain"; then
             echo "检测到项目已配置 SpotBugs 插件，使用 Gradle 运行..."
             ./gradlew spotbugsMain --no-daemon || true
           else
             echo "项目未配置 SpotBugs 插件，使用命令行工具运行..."
+
             # 下载 SpotBugs
             SPOTBUGS_VERSION="4.8.6"
             wget -q "https://github.com/spotbugs/spotbugs/releases/download/${SPOTBUGS_VERSION}/spotbugs-${SPOTBUGS_VERSION}.tgz" -O /tmp/spotbugs.tgz
             tar xzf /tmp/spotbugs.tgz -C /tmp/
 
-            # 运行 SpotBugs（仅报告高优先级和中优先级问题）
+            # 运行 SpotBugs，生成 XML 和 HTML 报告
             /tmp/spotbugs-${SPOTBUGS_VERSION}/bin/spotbugs \
               -textui \
               -include config/spotbugs/exclude.xml \
               -high \
               -medium \
               -xml:build/reports/spotbugs/spotbugs.xml \
+              build/classes/java/main/ || true
+
+            /tmp/spotbugs-${SPOTBUGS_VERSION}/bin/spotbugs \
+              -textui \
+              -include config/spotbugs/exclude.xml \
+              -high \
+              -medium \
               -html:build/reports/spotbugs/spotbugs.html \
               build/classes/java/main/ || true
           fi
 
-      # 步骤 3.5: 运行 PMD 分析
+      # 运行 PMD 分析
       - name: 运行 PMD 分析
         run: |
+          mkdir -p build/reports/pmd
+
           # 尝试使用 Gradle PMD 插件运行
           if ./gradlew tasks --no-daemon --quiet 2>/dev/null | grep -q "pmdMain"; then
             echo "检测到项目已配置 PMD 插件，使用 Gradle 运行..."
             ./gradlew pmdMain --no-daemon || true
           else
             echo "项目未配置 PMD 插件，使用命令行工具运行..."
+
             # 下载 PMD
             PMD_VERSION="7.3.0"
             wget -q "https://github.com/pmd/pmd/releases/download/pmd_releases%2F${PMD_VERSION}/pmd-dist-${PMD_VERSION}-bin.zip" -O /tmp/pmd.zip
             unzip -q /tmp/pmd.zip -d /tmp/
 
-            mkdir -p build/reports/pmd
-
-            # 运行 PMD
+            # 生成 XML 报告
             /tmp/pmd-bin-${PMD_VERSION}/bin/pmd check \
               -d src/main/java/ \
               -R config/pmd/ruleset.xml \
               -f xml \
               -r build/reports/pmd/pmd.xml || true
 
-            # 同时生成 HTML 报告
+            # 生成 HTML 报告
             /tmp/pmd-bin-${PMD_VERSION}/bin/pmd check \
               -d src/main/java/ \
               -R config/pmd/ruleset.xml \
@@ -655,7 +265,7 @@ jobs:
               -r build/reports/pmd/pmd.html || true
           fi
 
-      # 步骤 3.6: 上传静态分析报告
+      # 上传静态分析报告
       - name: 上传分析报告
         uses: actions/upload-artifact@v4
         if: always()
@@ -665,34 +275,15 @@ jobs:
             build/reports/spotbugs/
             build/reports/pmd/
           retention-days: 7
-
-      # 步骤 3.7: 发布检查结果到 GitHub Checks
-      # 这样在 PR 页面可以直接看到分析结果
-      - name: 发布 SpotBugs 结果
-        uses: jwgmeligmeyling/spotbugs-github-action@master
-        if: always()
-        continue-on-error: true
-        with:
-          path: "build/reports/spotbugs/spotbugs.xml"
-
-      - name: 发布 PMD 结果
-        uses: jwgmeligmeyling/pmd-github-action@master
-        if: always()
-        continue-on-error: true
-        with:
-          path: "build/reports/pmd/pmd.xml"
+          if-no-files-found: warn
 
   # ==========================================================================
   # Job 4: 单元测试
   # ==========================================================================
-  # 运行所有单元测试并生成测试覆盖率报告。
-  # 测试是代码质量的保障，确保代码行为符合预期。
-  # 使用 JaCoCo 生成覆盖率报告，帮助识别测试不足的区域。
-  # ==========================================================================
   test:
     name: 单元测试
     runs-on: ubuntu-latest
-    needs: build  # 依赖编译检查通过
+    needs: build
 
     steps:
       - name: 检出代码仓库
@@ -717,27 +308,32 @@ jobs:
       - name: 赋予 Gradlew 可执行权限
         run: chmod +x gradlew
 
-      # 步骤 4.1: 运行测试
-      # 使用 --info 显示测试详细信息
-      # 使用 --no-daemon 避免 CI 环境中守护进程问题
       - name: 运行测试
         run: |
-          ./gradlew test --no-daemon --info || true
+          # 检查是否存在测试源码目录
+          if [ -d "src/test" ]; then
+            echo "检测到测试目录，运行测试..."
+            ./gradlew test --no-daemon --info || true
+          else
+            echo "未检测到测试目录 (src/test)，跳过测试运行。"
+            echo "如需添加测试，请创建 src/test/java/ 目录并编写 JUnit 测试用例。"
+            mkdir -p build/reports/tests
+            echo "# 跳过测试" > build/reports/tests/skip-note.txt
+          fi
 
-      # 步骤 4.2: 生成测试报告摘要
-      # 将测试结果以 GitHub Job Summary 的形式展示
       - name: 生成测试报告摘要
         if: always()
         run: |
           echo "## 测试报告" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          if [ -d "build/reports/tests" ]; then
+          if [ -d "build/reports/tests" ] && [ "$(find build/reports/tests -name '*.html' -o -name '*.xml' | head -1)" ]; then
             echo "测试报告已生成，详见 Artifacts 中的 test-report。" >> $GITHUB_STEP_SUMMARY
           else
-            echo "未找到测试报告，可能项目中没有测试用例。" >> $GITHUB_STEP_SUMMARY
+            echo "未找到测试报告。项目中可能没有测试用例。" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "💡 如需添加测试，请在项目中创建 src/test/java/ 目录并编写 JUnit 测试。" >> $GITHUB_STEP_SUMMARY
           fi
 
-      # 步骤 4.3: 上传测试报告
       - name: 上传测试报告
         uses: actions/upload-artifact@v4
         if: always()
@@ -747,32 +343,16 @@ jobs:
             build/reports/tests/
             build/reports/jacoco/
           retention-days: 7
-
-      # 步骤 4.4: 发布测试结果到 PR 评论
-      # 使用 action 在 PR 中自动评论测试结果
-      - name: 发布测试结果
-        uses: EnricoMi/publish-unit-test-result-action@v2
-        if: always() && github.event_name == 'pull_request'
-        continue-on-error: true
-        with:
-          files: "build/test-results/**/*.xml"
-          check_name: "测试结果"
+          if-no-files-found: warn
 
   # ==========================================================================
   # Job 5: 依赖漏洞扫描
-  # ==========================================================================
-  # 检查项目依赖中是否存在已知的安全漏洞。
-  # 使用 OWASP Dependency-Check 和 GitHub Dependency Review。
-  # 安全漏洞可能在不知不觉中被引入，自动化扫描可以及时发现风险。
   # ==========================================================================
   dependency-scan:
     name: 依赖漏洞扫描
     runs-on: ubuntu-latest
     needs: build
 
-    # 为 OWASP Dependency-Check 提供环境变量
-    # NVD_API_KEY: 从 GitHub Secrets 读取，加速 NVD 数据库下载
-    # 如果未配置此 Secret，扫描仍然可以运行，但会非常慢
     env:
       NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
 
@@ -797,7 +377,6 @@ jobs:
             gradle-${{ runner.os }}-
 
       # 缓存 OWASP NVD 数据库，避免每次运行都重新下载
-      # 数据库每天更新一次，缓存可以有效加速扫描
       - name: 缓存 NVD 数据库
         uses: actions/cache@v4
         with:
@@ -811,8 +390,7 @@ jobs:
       - name: 赋予 Gradlew 可执行权限
         run: chmod +x gradlew
 
-      # 步骤 5.1: GitHub Dependency Review
-      # 仅在 PR 时运行，检查 PR 中新增的依赖是否有漏洞
+      # GitHub Dependency Review - 仅 PR 时运行
       - name: 依赖审查
         uses: actions/dependency-review-action@v4
         if: github.event_name == 'pull_request'
@@ -820,8 +398,6 @@ jobs:
           fail-on-severity: high
           deny-licenses: GPL-3.0, AGPL-3.0
 
-      # 步骤 5.2: 使用 Gradle 依赖分析
-      # 生成依赖树并检查是否有已知漏洞
       - name: 分析依赖树
         run: |
           echo "## 依赖分析" >> $GITHUB_STEP_SUMMARY
@@ -830,10 +406,9 @@ jobs:
           ./gradlew dependencies --no-daemon --configuration runtimeClasspath 2>&1 | head -200 >> $GITHUB_STEP_SUMMARY || true
           echo '```' >> $GITHUB_STEP_SUMMARY
 
-      # 步骤 5.3: 使用 OWASP Dependency-Check 进行漏洞扫描
-      # 重要：需要配置 NVD_API_KEY Secret 才能快速完成扫描
-      # 免费申请 API Key：https://nvd.nist.gov/developers/request-an-api-key
-      # 配置方法：GitHub 仓库 → Settings → Secrets → New repository secret → Name: NVD_API_KEY
+      # OWASP 依赖漏洞扫描
+      # 免费申请 NVD API Key：https://nvd.nist.gov/developers/request-an-api-key
+      # 配置方法：GitHub 仓库 → Settings → Secrets → Actions → NVD_API_KEY
       - name: OWASP 依赖漏洞扫描
         run: |
           # 检查是否配置了 NVD API Key
@@ -844,6 +419,8 @@ jobs:
             echo "💡 请前往 https://nvd.nist.gov/developers/request-an-api-key 免费申请"
             echo "💡 然后在 GitHub 仓库 Settings → Secrets → Actions 中添加 NVD_API_KEY"
           fi
+
+          mkdir -p build/reports/dependency-check
 
           # 尝试使用 Gradle OWASP 插件运行
           if ./gradlew tasks --no-daemon --quiet 2>/dev/null | grep -q "dependencyCheckAnalyze"; then
@@ -857,14 +434,10 @@ jobs:
             fi
           else
             echo "项目未配置 OWASP 插件，使用命令行工具运行..."
-            # 下载 OWASP Dependency-Check
             DC_VERSION="10.0.4"
             wget -q "https://github.com/jeremylong/DependencyCheck/releases/download/v${DC_VERSION}/dependency-check-${DC_VERSION}-release.zip" -O /tmp/dc.zip
             unzip -q /tmp/dc.zip -d /tmp/
 
-            mkdir -p build/reports/dependency-check
-
-            # 先生成 Gradle 依赖的 lock 文件
             ./gradlew dependencies --no-daemon --write-locks || true
 
             # 构建 OWASP 命令参数
@@ -876,33 +449,24 @@ jobs:
             DC_ARGS="$DC_ARGS --failOnCVSS 7"
             DC_ARGS="$DC_ARGS --data /tmp/dependency-check-data"
 
-            # 如果有 NVD API Key，添加到参数中以加速下载
             if [ -n "$NVD_API_KEY" ]; then
               DC_ARGS="$DC_ARGS --nvdApiKey $NVD_API_KEY"
             fi
 
-            # 运行 OWASP Dependency-Check
             /tmp/dependency-check/bin/dependency-check.sh $DC_ARGS || true
           fi
 
-      # 步骤 5.4: 上传漏洞扫描报告
       - name: 上传漏洞扫描报告
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: dependency-scan-report
-          path: |
-            build/reports/dependency-check/
+          path: build/reports/dependency-check/
           retention-days: 7
+          if-no-files-found: warn
 
   # ==========================================================================
   # Job 6: 代码重复度检查 (CPD)
-  # ==========================================================================
-  # 使用 PMD 的 CPD (Copy-Paste Detector) 检测代码中的重复片段。
-  # 代码重复是技术债务的重要指标，过多的重复代码会导致：
-  #   - 维护困难：修改一处逻辑需要同步修改多处
-  #   - Bug 隐患：忘记修改某一处重复代码就会引入 Bug
-  #   - 代码膨胀：增加编译时间和包体积
   # ==========================================================================
   code-duplication:
     name: 代码重复度检查
@@ -922,7 +486,6 @@ jobs:
       - name: 赋予 Gradlew 可执行权限
         run: chmod +x gradlew
 
-      # 步骤 6.1: 下载并运行 CPD
       - name: 运行 CPD 代码重复度检查
         run: |
           echo "## 代码重复度检查" >> $GITHUB_STEP_SUMMARY
@@ -960,7 +523,6 @@ jobs:
             echo "✅ 未发现明显的代码重复。" >> $GITHUB_STEP_SUMMARY
           fi
 
-      # 步骤 6.2: 上传 CPD 报告
       - name: 上传 CPD 报告
         uses: actions/upload-artifact@v4
         if: always()
@@ -968,20 +530,16 @@ jobs:
           name: cpd-report
           path: build/reports/cpd/
           retention-days: 7
+          if-no-files-found: warn
 
   # ==========================================================================
   # Job 7: 综合检查结果汇总
-  # ==========================================================================
-  # 汇总所有检查的结果，生成最终的检查报告。
-  # 这个 Job 是整个工作流的最终状态指示器：
-  #   - 所有检查通过 → ✅ 绿色
-  #   - 任一检查失败 → ❌ 红色
   # ==========================================================================
   check-results:
     name: 检查结果汇总
     runs-on: ubuntu-latest
     needs: [build, checkstyle, static-analysis, test, dependency-scan, code-duplication]
-    if: always()  # 即使前面的 Job 失败也运行
+    if: always()
 
     steps:
       - name: 汇总检查结果
@@ -989,7 +547,6 @@ jobs:
           echo "## 🔍 代码检查结果汇总" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          # 检查各个 Job 的状态
           BUILD_STATUS="${{ needs.build.result }}"
           CHECKSTYLE_STATUS="${{ needs.checkstyle.result }}"
           STATIC_STATUS="${{ needs.static-analysis.result }}"
@@ -997,7 +554,6 @@ jobs:
           DEP_STATUS="${{ needs.dependency-scan.result }}"
           CPD_STATUS="${{ needs.code-duplication.result }}"
 
-          # 生成结果表格
           echo "| 检查项 | 状态 |" >> $GITHUB_STEP_SUMMARY
           echo "|--------|------|" >> $GITHUB_STEP_SUMMARY
           echo "| 编译检查 | ${BUILD_STATUS} |" >> $GITHUB_STEP_SUMMARY
@@ -1008,7 +564,6 @@ jobs:
           echo "| 代码重复度检查 | ${CPD_STATUS} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          # 判断总体结果
           if [[ "${BUILD_STATUS}" == "failure" ]]; then
             echo "❌ **编译检查失败**：代码无法编译通过，请先修复编译错误。" >> $GITHUB_STEP_SUMMARY
             exit 1

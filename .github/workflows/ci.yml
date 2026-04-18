@@ -26,6 +26,8 @@ concurrency:
 
 env:
   GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.parallel=true -Xmx2g"
+  # 提前切换到 Node.js 24，消除 Node.js 20 弃用警告
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   build:
