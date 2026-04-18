@@ -64,29 +64,9 @@ public class ParallelDownloader {
     private final AtomicInteger completedFileCount = new AtomicInteger(0);
 
     /**
-     * 当前正在下载的文件数（线程安全），用于UI显示策略
+     * 焦点文件管理器（与 ChunkedDownloader 共享同一个实例）
      */
-    private final AtomicInteger activeDownloadCount = new AtomicInteger(0);
-
-    /**
-     * 当前焦点文件名（线程安全），多线程下载时只显示焦点文件，避免闪烁
-     */
-    private volatile String focusFilename = null;
-
-    /**
-     * 焦点文件锁定时间，避免频繁切换
-     */
-    private final AtomicLong focusLockTime = new AtomicLong(0);
-
-    /**
-     * 焦点文件最小显示时长（毫秒）
-     */
-    private static final long FOCUS_LOCK_DURATION = 2000;
-
-    /**
-     * 焦点机制的互斥锁，防止 acquireFocus() 的 TOCTOU 竞态条件
-     */
-    private final Object focusLock = new Object();
+    private final FocusManager focusManager;
 
     public ParallelDownloader(Servers servers, AppConfig config, McPatchWindow window,
                               AtomicLong totalDownloaded, long totalBytes,
@@ -100,54 +80,22 @@ public class ParallelDownloader {
         this.speed = speed;
         this.uiTimer = uiTimer;
         this.totalFileCount = totalFileCount;
+        this.focusManager = new FocusManager();
     }
 
     // ===== 焦点文件管理 =====
+    // 所有焦点相关逻辑已移至 FocusManager，此处仅做委托
 
-    /**
-     * 尝试获取焦点。如果当前没有焦点文件或锁定时间已过，则成为焦点文件。
-     * 焦点机制：多线程同时下载时，单文件进度条只跟踪一个"焦点文件"，
-     * 避免文件名疯狂闪烁。焦点锁定2秒，期间不会被其他文件抢占。
-     * <p>
-     * 使用 synchronized 保证 check-then-act 的原子性，避免 TOCTOU 竞态条件。
-     *
-     * @param filename 要获取焦点的文件名
-     */
     private void acquireFocus(String filename) {
-        synchronized (focusLock) {
-            long now = System.currentTimeMillis();
-            // 没有焦点文件，或者焦点锁定时间已过，可以抢占
-            if (focusFilename == null || now - focusLockTime.get() > FOCUS_LOCK_DURATION) {
-                focusFilename = filename;
-                focusLockTime.set(now);
-            }
-        }
+        focusManager.acquireFocus(filename);
     }
 
-    /**
-     * 判断指定文件是否是当前的焦点文件
-     */
     private boolean isFocusFile(String filename) {
-        synchronized (focusLock) {
-            return filename.equals(focusFilename);
-        }
+        return focusManager.isFocusFile(filename);
     }
 
-    /**
-     * 获取文件在UI上的显示名称。
-     * 多线程同时下载时，焦点文件正常显示文件名；
-     * 非焦点文件不更新单文件进度条（只更新总进度）。
-     *
-     * @param filename 文件名
-     * @return 显示名称
-     */
     private String getDisplayName(String filename) {
-        int active = activeDownloadCount.get();
-        if (active > 1) {
-            // 多线程下载时，焦点文件名后标注并行数
-            return filename + " (+" + (active - 1) + ")";
-        }
-        return filename;
+        return focusManager.getDisplayName(filename);
     }
 
     // ===== 下载逻辑 =====
@@ -211,10 +159,10 @@ public class ParallelDownloader {
     private List<DownloadResult> doParallelDownload(List<TempUpdateFile> files, int round, ExecutorService executor)
             throws McpatchBusinessException {
 
-        // 创建分片下载器（复用线程池）
+        // 创建分片下载器（共享焦点管理器，确保焦点状态一致）
         ChunkedDownloader chunkedDownloader = new ChunkedDownloader(
                 servers, config, window, totalDownloaded, totalBytes, speed, uiTimer, executor,
-                activeDownloadCount, focusFilename, focusLockTime);
+                focusManager);
 
         // 失败结果收集（线程安全）
         ConcurrentLinkedQueue<DownloadResult> failures = new ConcurrentLinkedQueue<>();
@@ -223,7 +171,7 @@ public class ParallelDownloader {
         List<Future<?>> futures = new ArrayList<>();
         for (TempUpdateFile f : files) {
             futures.add(executor.submit(() -> {
-                activeDownloadCount.incrementAndGet();
+                focusManager.incrementActiveDownloadCount();
                 try {
                     // 判断是否需要分片下载
                     if (chunkedDownloader.shouldUseChunkedDownload(f)) {
@@ -234,7 +182,7 @@ public class ParallelDownloader {
                 } catch (Exception e) {
                     failures.add(new DownloadResult(f, e));
                 } finally {
-                    activeDownloadCount.decrementAndGet();
+                    focusManager.decrementActiveDownloadCount();
                     // 文件完成（无论成功失败都算处理完毕）
                     int completed = completedFileCount.incrementAndGet();
                     updateStatusUI(completed);

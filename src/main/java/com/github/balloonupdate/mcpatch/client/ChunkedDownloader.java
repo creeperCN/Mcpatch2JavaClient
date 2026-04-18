@@ -27,7 +27,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -55,15 +54,8 @@ public class ChunkedDownloader {
     private final long chunkSize;
     private final int maxChunks;
 
-    // 焦点文件机制（与 ParallelDownloader 共享）
-    private final AtomicInteger sharedActiveDownloadCount;
-    private final AtomicLong sharedFocusLockTime;
-    private volatile String focusFilename;
-
-    /**
-     * 焦点机制的互斥锁，防止 acquireFocus() 的 TOCTOU 竞态条件
-     */
-    private final Object focusLock = new Object();
+    // 焦点文件管理器（与 ParallelDownloader 共享同一个实例）
+    private final FocusManager focusManager;
 
     /**
      * 创建一个分片下载器（旧版构造函数，不含焦点机制，向后兼容）
@@ -81,9 +73,7 @@ public class ChunkedDownloader {
         this.totalBytes = totalBytes;
         this.speed = speed;
         this.uiTimer = uiTimer;
-        this.sharedActiveDownloadCount = new AtomicInteger(1);
-        this.focusFilename = null;
-        this.sharedFocusLockTime = new AtomicLong(0);
+        this.focusManager = new FocusManager();
 
         // 从配置读取或使用默认值
         this.chunkSize = config.chunkSize > 0 ? config.chunkSize : DEFAULT_CHUNK_SIZE;
@@ -93,18 +83,14 @@ public class ChunkedDownloader {
     /**
      * 创建一个分片下载器（新版构造函数，含焦点文件机制）
      *
-     * @param executor                    不再使用，保留参数仅为向后兼容
-     * @param sharedActiveDownloadCount   与 ParallelDownloader 共享的活跃下载数
-     * @param focusFilename               焦点文件名引用（可为 null）
-     * @param sharedFocusLockTime         焦点文件锁定时间
+     * @param executor      不再使用，保留参数仅为向后兼容
+     * @param focusManager  与 ParallelDownloader 共享的焦点管理器
      */
     public ChunkedDownloader(Servers servers, AppConfig config, McPatchWindow window,
                              AtomicLong totalDownloaded, long totalBytes,
                              SpeedStat speed, AtomicLong uiTimer,
                              ExecutorService executor,
-                             AtomicInteger sharedActiveDownloadCount,
-                             String focusFilename,
-                             AtomicLong sharedFocusLockTime) {
+                             FocusManager focusManager) {
         this.servers = servers;
         this.config = config;
         this.window = window;
@@ -112,9 +98,7 @@ public class ChunkedDownloader {
         this.totalBytes = totalBytes;
         this.speed = speed;
         this.uiTimer = uiTimer;
-        this.sharedActiveDownloadCount = sharedActiveDownloadCount;
-        this.focusFilename = focusFilename;
-        this.sharedFocusLockTime = sharedFocusLockTime;
+        this.focusManager = focusManager;
 
         // 从配置读取或使用默认值
         this.chunkSize = config.chunkSize > 0 ? config.chunkSize : DEFAULT_CHUNK_SIZE;
@@ -122,42 +106,18 @@ public class ChunkedDownloader {
     }
 
     // ===== 焦点文件管理 =====
+    // 所有焦点相关逻辑已移至 FocusManager，此处仅做委托
 
-    private static final long FOCUS_LOCK_DURATION = 2000;
-
-    /**
-     * 尝试获取焦点
-     * 使用 synchronized 保证 check-then-act 的原子性，避免 TOCTOU 竞态条件
-     */
     private void acquireFocus(String filename) {
-        synchronized (focusLock) {
-            long now = System.currentTimeMillis();
-            // 没有焦点文件，或者焦点锁定时间已过，可以抢占
-            if (focusFilename == null || now - sharedFocusLockTime.get() > FOCUS_LOCK_DURATION) {
-                this.focusFilename = filename;
-                sharedFocusLockTime.set(now);
-            }
-        }
+        focusManager.acquireFocus(filename);
     }
 
-    /**
-     * 判断此文件是否是焦点文件
-     */
     private boolean isFocusFile(String filename) {
-        synchronized (focusLock) {
-            return filename.equals(focusFilename);
-        }
+        return focusManager.isFocusFile(filename);
     }
 
-    /**
-     * 获取显示名称（含并行下载提示）
-     */
     private String getDisplayName(String filename) {
-        int active = sharedActiveDownloadCount != null ? sharedActiveDownloadCount.get() : 1;
-        if (active > 1) {
-            return filename + " (+" + (active - 1) + ")";
-        }
-        return filename;
+        return focusManager.getDisplayName(filename);
     }
 
     // ===== 下载逻辑 =====
