@@ -141,6 +141,13 @@ public class ChunkedDownloader {
         // 6. 清理临时分片文件
         cleanupChunks(chunks);
 
+        // 7. 显示文件完成
+        if (window != null) {
+            SwingUtilities.invokeLater(() -> {
+                window.setFileProgress(filename, file.length, file.length);
+            });
+        }
+
         Log.info("分片下载完成: " + file.path);
     }
 
@@ -214,7 +221,7 @@ public class ChunkedDownloader {
             for (FileChunk chunk : chunks) {
                 chunkExecutor.submit(() -> {
                     try {
-                        downloadSingleChunk(file, chunk, filename, maxRetries);
+                        downloadSingleChunk(file, chunk, chunks, filename, maxRetries);
                     } catch (Exception e) {
                         failures.add(new ChunkDownloadException(chunk, e));
                     } finally {
@@ -246,8 +253,11 @@ public class ChunkedDownloader {
 
     /**
      * 下载单个分片（支持重试）
+     *
+     * @param allChunks 所有分片列表，用于计算单文件总进度
      */
-    private void downloadSingleChunk(TempUpdateFile file, FileChunk chunk, String filename, int maxRetries)
+    private void downloadSingleChunk(TempUpdateFile file, FileChunk chunk, List<FileChunk> allChunks,
+                                     String filename, int maxRetries)
             throws Exception {
 
         int attempts = 0;
@@ -273,8 +283,14 @@ public class ChunkedDownloader {
                             totalDownloaded.addAndGet(packageLength);
                             speed.feed(packageLength);
 
-                            // 更新UI
-                            updateUI(filename);
+                            // 聚合所有分片已下载字节，计算单文件进度
+                            long fileDownloaded = 0;
+                            for (FileChunk c : allChunks) {
+                                fileDownloaded += c.downloadedBytes.get();
+                            }
+
+                            // 更新UI（单文件进度 + 总进度）
+                            updateUI(filename, fileDownloaded, file.length);
                         },
                         (fallback) -> {
                             // 失败回退进度
@@ -282,7 +298,13 @@ public class ChunkedDownloader {
                             totalDownloaded.addAndGet(-toFallback);
                             chunk.downloadedBytes.addAndGet(-toFallback);
                             bytesCounter.set(0);
-                            updateUI(filename);
+
+                            // 重新计算单文件进度
+                            long fileDownloaded = 0;
+                            for (FileChunk c : allChunks) {
+                                fileDownloaded += c.downloadedBytes.get();
+                            }
+                            updateUI(filename, fileDownloaded, file.length);
                         }
                 );
 
@@ -463,8 +485,12 @@ public class ChunkedDownloader {
 
     /**
      * 更新UI显示（双进度条：单文件进度 + 总进度 + ETA）
+     *
+     * @param filename 文件名
+     * @param fileDownloaded 单文件已下载字节
+     * @param fileSize 单文件总字节
      */
-    private void updateUI(String filename) {
+    private void updateUI(String filename, long fileDownloaded, long fileSize) {
         if (window == null) {
             return;
         }
@@ -479,11 +505,11 @@ public class ChunkedDownloader {
         final String speedStr = speed.sampleSpeed2();
 
         SwingUtilities.invokeLater(() -> {
+            // 更新单文件进度
+            window.setFileProgress(filename, fileDownloaded, fileSize);
             // 更新总进度 + 速度 + ETA
             String eta = calculateETA(dl, totalBytes);
             window.setTotalProgress(dl, totalBytes, speedStr, eta);
-            // 更新文件名显示
-            window.setLabelSecondaryText(filename);
         });
     }
 
