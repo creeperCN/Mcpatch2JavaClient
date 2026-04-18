@@ -159,8 +159,9 @@ public class ChunkedDownloader {
         }
 
         for (int i = 0; i < chunkCount; i++) {
-            long start = i * actualChunkSize;
-            long end = (i == chunkCount - 1) ? file.length : (i + 1) * actualChunkSize;
+            // 分片的字节范围必须加上 file.offset，因为 offset 是文件在更新包中的起始位置
+            long start = file.offset + i * actualChunkSize;
+            long end = (i == chunkCount - 1) ? (file.offset + file.length) : file.offset + (i + 1) * actualChunkSize;
             Path chunkPath = chunkDir.resolve(String.format("chunk.%d.tmp", i));
 
             chunks.add(new FileChunk(i, start, end, chunkPath));
