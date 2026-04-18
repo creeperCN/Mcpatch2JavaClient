@@ -147,7 +147,6 @@ public class ChunkedDownloader {
      */
     private List<FileChunk> createChunks(TempUpdateFile file) {
         int chunkCount = calculateChunkCount(file.length);
-        long actualChunkSize = file.length / chunkCount;
 
         List<FileChunk> chunks = new ArrayList<>();
         Path chunkDir = file.tempPath.getParent().resolve(file.tempPath.getFileName() + ".chunks");
@@ -159,9 +158,14 @@ public class ChunkedDownloader {
         }
 
         for (int i = 0; i < chunkCount; i++) {
+            // 使用向上取整的方式分配分片大小，避免整数除法导致最后一个分片过大
+            // 每个分片的范围在文件内部是均匀分布的
+            long startInFile = file.length * i / chunkCount;
+            long endInFile = file.length * (i + 1) / chunkCount;
+
             // 分片的字节范围必须加上 file.offset，因为 offset 是文件在更新包中的起始位置
-            long start = file.offset + i * actualChunkSize;
-            long end = (i == chunkCount - 1) ? (file.offset + file.length) : file.offset + (i + 1) * actualChunkSize;
+            long start = file.offset + startInFile;
+            long end = file.offset + endInFile;
             Path chunkPath = chunkDir.resolve(String.format("chunk.%d.tmp", i));
 
             chunks.add(new FileChunk(i, start, end, chunkPath));
@@ -233,6 +237,9 @@ public class ChunkedDownloader {
                             // 更新分片进度
                             chunk.downloadedBytes.set(bytesReceived);
 
+                            // 累计本次会话已下载字节（用于回退）
+                            bytesCounter.addAndGet(packageLength);
+
                             // 更新总进度
                             totalDownloaded.addAndGet(packageLength);
                             speed.feed(packageLength);
@@ -244,7 +251,7 @@ public class ChunkedDownloader {
                             // 失败回退进度
                             long toFallback = bytesCounter.get();
                             totalDownloaded.addAndGet(-toFallback);
-                            chunk.downloadedBytes.addAndGet(-bytesCounter.get());
+                            chunk.downloadedBytes.addAndGet(-toFallback);
                             bytesCounter.set(0);
                             updateUI(filename);
                         }

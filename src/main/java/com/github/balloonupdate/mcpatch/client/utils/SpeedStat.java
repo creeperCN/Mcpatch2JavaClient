@@ -38,14 +38,6 @@ public class SpeedStat {
             return 0;
         }
 
-        long now = System.currentTimeMillis();
-        long delta = now - frames.getFirst().time;
-
-        // 调用太快了，也返回0
-        if (delta < 0) {
-            return 0;
-        }
-
         // 计算总bytes
         long totalBytes = 0;
 
@@ -53,8 +45,13 @@ public class SpeedStat {
             totalBytes += sample.bytes;
         }
 
-        // 重新计算时间跨度
-        delta = frames.getFirst().time - frames.getLast().time;
+        // 计算时间跨度（从最旧到最新）
+        long delta = frames.getFirst().time - frames.getLast().time;
+
+        // 防止除零：时间跨度为0时返回0
+        if (delta <= 0) {
+            return 0;
+        }
 
         // 计算平均速度
         return totalBytes / delta * 1000;
@@ -77,25 +74,15 @@ public class SpeedStat {
         // 正常添加一个采样数据
         frames.addFirst(GetSample(bytes, now));
 
-        // 清理多余数据
-        int invalidStartsAt = -1;
-        int index = 0;
+        // 清理超过采样周期的旧数据
+        while (frames.size() > 2) {
+            Sample last = frames.getLast();
+            long diff = now - last.time;
 
-        // 收集多余数据的范围
-        for (Sample frame : frames) {
-            long diff = now - frame.time;
-
-            if (diff > period && invalidStartsAt == -1) {
-                invalidStartsAt = index;
-            }
-
-            index += 1;
-        }
-
-        // 开始回收多余数据
-        if (invalidStartsAt != -1 && index - invalidStartsAt > 1) {
-            for (int i = invalidStartsAt; i < frames.size(); i++) {
+            if (diff > period) {
                 ReleaseSample(frames.removeLast());
+            } else {
+                break;
             }
         }
 

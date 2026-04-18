@@ -6,7 +6,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.Arrays;
 
 /**
  * 文件 hash 计算类，所有计算文件哈希值时都会调用此函数，可以在此函数中替换任意哈希算法
@@ -77,8 +76,6 @@ class Crc64_XZ {
 
     public void reset() {
         crc = initialValue;
-
-        Arrays.fill(buf, (byte) 0);
     }
 
     public void update(Path file) throws IOException {
@@ -140,8 +137,6 @@ class Crc16_IBM_SDLC {
 
     public void reset() {
         crc = initialValue;
-
-        Arrays.fill(buf, (byte) 0);
     }
 
     public void update(Path file) throws IOException {

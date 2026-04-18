@@ -98,7 +98,14 @@ public class Servers implements UpdatingServer {
 
         // 每个服务器挨个试
         while (current.get() < servers.size()) {
-            UpdatingServer server = servers.get(current.get());
+            int serverIndex = current.get();
+
+            // 防止索引越界
+            if (serverIndex >= servers.size()) {
+                break;
+            }
+
+            UpdatingServer server = servers.get(serverIndex);
 
             int times = config.reties;
 
@@ -142,9 +149,8 @@ public class Servers implements UpdatingServer {
             if (current.get() < servers.size() - 1)
                 Log.error(ex.toString());
 
-            // 原子切换服务器
-            int oldVal = current.get();
-            current.compareAndSet(oldVal, oldVal + 1);
+            // 原子切换服务器：使用 CAS 确保只在当前索引未变时才推进
+            current.compareAndSet(serverIndex, serverIndex + 1);
         }
 
         RuntimeAssert.isTrue(ex != null);

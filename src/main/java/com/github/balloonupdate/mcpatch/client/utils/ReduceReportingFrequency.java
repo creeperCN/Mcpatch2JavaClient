@@ -14,7 +14,7 @@ public class ReduceReportingFrequency {
      */
     private long accumulated = 0L;
 
-    public long feed(int bytes) {
+    public long feed(long bytes) {
         accumulated += bytes;
 
         long now = System.currentTimeMillis();

@@ -73,22 +73,34 @@ public class ParallelDownloader {
         List<TempUpdateFile> remaining = new ArrayList<>(updateFiles);
         int maxRetries = 3;
 
-        for (int round = 0; round < maxRetries && !remaining.isEmpty(); round++) {
-            List<DownloadResult> failures = doParallelDownload(remaining, round);
+        // 创建线程池（在所有重试轮次中复用，避免每轮重建）
+        int poolSize = Math.min(threadCount, updateFiles.size());
+        ExecutorService executor = Executors.newFixedThreadPool(poolSize, r -> {
+            Thread t = new Thread(r, "mcpatch-downloader");
+            t.setDaemon(true);
+            return t;
+        });
 
-            if (failures.isEmpty()) {
-                return; // 全部成功
+        try {
+            for (int round = 0; round < maxRetries && !remaining.isEmpty(); round++) {
+                List<DownloadResult> failures = doParallelDownload(remaining, round, executor);
+
+                if (failures.isEmpty()) {
+                    return; // 全部成功
+                }
+
+                // 收集失败项准备重试
+                remaining.clear();
+                for (DownloadResult failure : failures) {
+                    Log.warn(String.format("下载失败，将重试: %s, 原因: %s",
+                        failure.file.path, failure.exception.getMessage()));
+                    remaining.add(failure.file);
+                }
+
+                Log.info(String.format("第 %d 轮下载完成，%d 个文件失败，准备重试", round + 1, failures.size()));
             }
-
-            // 收集失败项准备重试
-            remaining.clear();
-            for (DownloadResult failure : failures) {
-                Log.warn(String.format("下载失败，将重试: %s, 原因: %s",
-                    failure.file.path, failure.exception.getMessage()));
-                remaining.add(failure.file);
-            }
-
-            Log.info(String.format("第 %d 轮下载完成，%d 个文件失败，准备重试", round + 1, failures.size()));
+        } finally {
+            executor.shutdown();
         }
 
         if (!remaining.isEmpty()) {
@@ -100,16 +112,8 @@ public class ParallelDownloader {
     /**
      * 执行一轮并行下载
      */
-    private List<DownloadResult> doParallelDownload(List<TempUpdateFile> files, int round)
+    private List<DownloadResult> doParallelDownload(List<TempUpdateFile> files, int round, ExecutorService executor)
             throws McpatchBusinessException {
-        int poolSize = Math.min(threadCount, files.size());
-
-        // 创建线程池（复用，共享给 ChunkedDownloader）
-        ExecutorService executor = Executors.newFixedThreadPool(poolSize, r -> {
-            Thread t = new Thread(r, "mcpatch-downloader-" + round);
-            t.setDaemon(true);
-            return t;
-        });
 
         // 创建分片下载器（复用线程池）
         ChunkedDownloader chunkedDownloader = new ChunkedDownloader(
@@ -118,37 +122,33 @@ public class ParallelDownloader {
         // 失败结果收集（线程安全）
         ConcurrentLinkedQueue<DownloadResult> failures = new ConcurrentLinkedQueue<>();
 
-        try {
-            // 提交下载任务
-            List<Future<?>> futures = new ArrayList<>();
-            for (TempUpdateFile f : files) {
-                futures.add(executor.submit(() -> {
-                    try {
-                        // 判断是否需要分片下载
-                        if (chunkedDownloader.shouldUseChunkedDownload(f)) {
-                            chunkedDownloader.download(f);
-                        } else {
-                            downloadSingleFile(f);
-                        }
-                    } catch (Exception e) {
-                        failures.add(new DownloadResult(f, e));
-                    }
-                }));
-            }
-
-            // 等待所有任务完成
-            for (Future<?> future : futures) {
+        // 提交下载任务
+        List<Future<?>> futures = new ArrayList<>();
+        for (TempUpdateFile f : files) {
+            futures.add(executor.submit(() -> {
                 try {
-                    future.get();
-                } catch (InterruptedException e) {
-                    executor.shutdownNow();
-                    throw new McpatchBusinessException("用户打断了更新", e);
-                } catch (ExecutionException e) {
-                    // 单个任务的异常已在上方收集，这里不再处理
+                    // 判断是否需要分片下载
+                    if (chunkedDownloader.shouldUseChunkedDownload(f)) {
+                        chunkedDownloader.download(f);
+                    } else {
+                        downloadSingleFile(f);
+                    }
+                } catch (Exception e) {
+                    failures.add(new DownloadResult(f, e));
                 }
+            }));
+        }
+
+        // 等待所有任务完成
+        for (Future<?> future : futures) {
+            try {
+                future.get();
+            } catch (InterruptedException e) {
+                executor.shutdownNow();
+                throw new McpatchBusinessException("用户打断了更新", e);
+            } catch (ExecutionException e) {
+                // 单个任务的异常已在上方收集，这里不再处理
             }
-        } finally {
-            executor.shutdown();
         }
 
         return new ArrayList<>(failures);
@@ -168,12 +168,13 @@ public class ParallelDownloader {
             Path tempDirectory = f.tempPath.getParent();
             Files.createDirectories(tempDirectory);
 
-            // 空文件不需要下载
+            // 空文件不需要下载，直接创建空文件并设置修改时间
             if (f.length == 0) {
                 if (Files.exists(f.tempPath)) {
                     Files.delete(f.tempPath);
                 }
                 Files.createFile(f.tempPath);
+                Files.setLastModifiedTime(f.tempPath, FileTime.from(f.modified, TimeUnit.SECONDS));
                 return;
             }
 

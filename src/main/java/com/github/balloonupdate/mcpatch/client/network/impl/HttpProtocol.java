@@ -81,12 +81,12 @@ public class HttpProtocol implements UpdatingServer {
 
     @Override
     public String requestText(String path, Range range, String desc) throws McpatchBusinessException {
-        Response rsp = request(path, range, desc);
-
-        try {
-            return rsp.body().string();
-        } catch (IOException e) {
-            throw new McpatchBusinessException("无法解码响应体", e);
+        try (Response rsp = request(path, range, desc)) {
+            try {
+                return rsp.body().string();
+            } catch (IOException e) {
+                throw new McpatchBusinessException("无法解码响应体", e);
+            }
         }
     }
 

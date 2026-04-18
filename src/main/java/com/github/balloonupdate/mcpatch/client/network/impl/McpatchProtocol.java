@@ -76,6 +76,13 @@ public class McpatchProtocol implements UpdatingServer {
         if (len == 0)
             return "";
 
+        // 安全检查：防止整数溢出和 OOM
+        if (len > Integer.MAX_VALUE) {
+            throw new McpatchBusinessException(String.format(
+                    "私有协议(%d) 返回的文件大小 %d 超过最大限制(%d): %s",
+                    number, len, (long) Integer.MAX_VALUE, desc));
+        }
+
         byte[] buf = new byte[(int) len];
 
         try {
