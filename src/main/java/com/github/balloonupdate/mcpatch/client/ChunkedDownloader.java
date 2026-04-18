@@ -202,6 +202,13 @@ public class ChunkedDownloader {
             return t;
         });
 
+        // 初始化单文件进度显示
+        if (window != null) {
+            SwingUtilities.invokeLater(() -> {
+                window.setFileProgress(filename, 0, file.length);
+            });
+        }
+
         try {
             // 提交所有分片下载任务到独立线程池
             for (FileChunk chunk : chunks) {
@@ -432,7 +439,7 @@ public class ChunkedDownloader {
     }
 
     /**
-     * 更新UI显示
+     * 更新UI显示（双进度条：单文件进度 + 总进度 + ETA）
      */
     private void updateUI(String filename) {
         if (window == null) {
@@ -449,13 +456,24 @@ public class ChunkedDownloader {
         final String speedStr = speed.sampleSpeed2();
 
         SwingUtilities.invokeLater(() -> {
-            window.setProgressBarText(String.format("%s/%s  -  %s/s",
-                    BytesUtils.convertBytes(dl),
-                    BytesUtils.convertBytes(totalBytes),
-                    speedStr));
-            window.setProgressBarValue((int) (dl / (float) totalBytes * 1000));
+            // 更新总进度 + 速度 + ETA
+            String eta = calculateETA(dl, totalBytes);
+            window.setTotalProgress(dl, totalBytes, speedStr, eta);
+            // 更新文件名显示
             window.setLabelSecondaryText(filename);
         });
+    }
+
+    /**
+     * 计算预估剩余时间
+     */
+    private String calculateETA(long downloaded, long total) {
+        if (total <= 0 || downloaded <= 0) return "";
+        long speedBytes = speed.sampleSpeed();
+        if (speedBytes <= 0) return "";
+        long remaining = total - downloaded;
+        long etaSeconds = remaining / speedBytes;
+        return BytesUtils.formatETA(etaSeconds);
     }
 
     /**

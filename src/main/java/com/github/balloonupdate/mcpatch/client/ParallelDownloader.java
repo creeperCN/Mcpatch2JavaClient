@@ -20,6 +20,7 @@ import java.nio.file.attribute.FileTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -52,9 +53,19 @@ public class ParallelDownloader {
      */
     private final AtomicLong uiTimer;
 
+    /**
+     * 总文件数
+     */
+    private final int totalFileCount;
+
+    /**
+     * 已完成的文件数（线程安全）
+     */
+    private final AtomicInteger completedFileCount = new AtomicInteger(0);
+
     public ParallelDownloader(Servers servers, AppConfig config, McPatchWindow window,
                               AtomicLong totalDownloaded, long totalBytes,
-                              SpeedStat speed, AtomicLong uiTimer, int threadCount) {
+                              SpeedStat speed, AtomicLong uiTimer, int threadCount, int totalFileCount) {
         this.servers = servers;
         this.config = config;
         this.window = window;
@@ -63,6 +74,7 @@ public class ParallelDownloader {
         this.totalBytes = totalBytes;
         this.speed = speed;
         this.uiTimer = uiTimer;
+        this.totalFileCount = totalFileCount;
     }
 
     /**
@@ -135,6 +147,10 @@ public class ParallelDownloader {
                     }
                 } catch (Exception e) {
                     failures.add(new DownloadResult(f, e));
+                } finally {
+                    // 文件完成（无论成功失败都算处理完毕）
+                    int completed = completedFileCount.incrementAndGet();
+                    updateStatusUI(completed);
                 }
             }));
         }
@@ -152,6 +168,17 @@ public class ParallelDownloader {
         }
 
         return new ArrayList<>(failures);
+    }
+
+    /**
+     * 更新状态栏UI（文件计数 + ETA）
+     */
+    private void updateStatusUI(int completedFiles) {
+        if (window == null) return;
+
+        SwingUtilities.invokeLater(() -> {
+            window.setLabelText(String.format("正在下载更新文件 - 已完成 %d/%d", completedFiles, totalFileCount));
+        });
     }
 
     /**
@@ -178,13 +205,10 @@ public class ParallelDownloader {
                 return;
             }
 
-            // 展示即将开始下载
+            // 展示即将开始下载 - 更新单文件进度
             if (window != null) {
                 SwingUtilities.invokeLater(() -> {
-                    window.setProgressBarValue(
-                        (int) (totalDownloaded.get() / (float) totalBytes * 1000));
-                    window.setLabelSecondaryText(filename);
-                    window.setLabelText(String.format("正在下载 %s 版本", f.label));
+                    window.setFileProgress(filename, 0, f.length);
                 });
             }
 
@@ -209,14 +233,15 @@ public class ParallelDownloader {
 
                             final long dl = totalDownloaded.get();
                             final String speedStr = speed.sampleSpeed2();
+                            final long fileDownloaded = bytesCounter.get();
 
                             SwingUtilities.invokeLater(() -> {
-                                window.setProgressBarText(String.format("%s/%s  -  %s/s",
-                                    BytesUtils.convertBytes(dl),
-                                    BytesUtils.convertBytes(totalBytes),
-                                    speedStr));
-                                window.setProgressBarValue(
-                                    (int) (dl / (float) totalBytes * 1000));
+                                // 更新单文件进度
+                                window.setFileProgress(filename, fileDownloaded, f.length);
+
+                                // 更新总进度 + 速度 + ETA
+                                String eta = calculateETA(dl, totalBytes);
+                                window.setTotalProgress(dl, totalBytes, speedStr, eta);
                             });
                         }
                     }
@@ -230,12 +255,9 @@ public class ParallelDownloader {
                         final String speedStr = speed.sampleSpeed2();
 
                         SwingUtilities.invokeLater(() -> {
-                            window.setProgressBarText(String.format("%s/%s  -  %s/s",
-                                BytesUtils.convertBytes(dl),
-                                BytesUtils.convertBytes(totalBytes),
-                                speedStr));
-                            window.setProgressBarValue(
-                                (int) (dl / (float) totalBytes * 1000));
+                            window.setFileProgress(filename, 0, f.length);
+                            String eta = calculateETA(dl, totalBytes);
+                            window.setTotalProgress(dl, totalBytes, speedStr, eta);
                         });
                     }
                 }
@@ -265,6 +287,18 @@ public class ParallelDownloader {
                 }
             }
         }
+    }
+
+    /**
+     * 计算预估剩余时间
+     */
+    private String calculateETA(long downloaded, long total) {
+        if (total <= 0 || downloaded <= 0) return "";
+        long speedBytes = speed.sampleSpeed();
+        if (speedBytes <= 0) return "";
+        long remaining = total - downloaded;
+        long etaSeconds = remaining / speedBytes;
+        return BytesUtils.formatETA(etaSeconds);
     }
 
     /**

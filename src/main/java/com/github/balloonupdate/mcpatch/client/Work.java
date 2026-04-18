@@ -91,8 +91,11 @@ public class Work {
 
         Log.info("正在检查更新");
 
-        if (window != null)
+        if (window != null) {
+            window.setPhase(0);
             window.setLabelText("正在检测更新");
+            window.clearFileProgress();
+        }
 
         // 获取服务端最新版本号
         String indexJsonText = server.requestText("index.json", Range.Empty(), "index file");
@@ -129,6 +132,11 @@ public class Work {
                 window.show();
             }
 
+            // 显示版本信息
+            if (window != null) {
+                window.setVersionInfo(currentVersion, latestVersion);
+            }
+
             // 收集落后的版本
             List<VersionIndex> missingVersions = serverVersions.calculateMissingVersions(currentVersion);
 
@@ -151,8 +159,10 @@ public class Work {
 
                 Log.debug(tip);
 
-                if (window != null)
+                if (window != null) {
+                    window.setPhase(1);
                     window.setLabelText(tip);
+                }
 
                 counter += 1;
 
@@ -411,8 +421,11 @@ public class Work {
             // 准备开始下载更新数据
             Log.info("开始下载更新数据");
 
-            if (window != null)
-                window.setLabelText("下载更新数据");
+            if (window != null) {
+                window.setPhase(2);
+                window.setLabelText(String.format("正在下载更新文件 (%d 个文件)", updateFiles.size()));
+                window.clearFileProgress();
+            }
 
             AtomicLong totalDownloaded = new AtomicLong();
 
@@ -432,17 +445,21 @@ public class Work {
 
             // 执行并行下载
             ParallelDownloader downloader = new ParallelDownloader(
-                server, config, window, totalDownloaded, totalBytes, speed, uiTimer, threadCount);
+                server, config, window, totalDownloaded, totalBytes, speed, uiTimer, threadCount, updateFiles.size());
             downloader.download(updateFiles);
 
-            if (window != null)
+            if (window != null) {
                 window.setProgressBarValue(1000);
+                window.clearFileProgress();
+            }
 
             // 2.创建目录
             Log.info("准备开始创建目录");
 
             if (window != null) {
-                window.setLabelText("准备开始创建目录");
+                window.setPhase(3);
+                window.setLabelText("正在创建目录...");
+                window.clearFileProgress();
             }
 
             for (String f : createFolders) {
@@ -495,7 +512,7 @@ public class Work {
             Log.info("正在移动临时文件，请不要关闭程序");
 
             if (window != null) {
-                window.setLabelText("正在移动临时文件，请不要关闭程序");
+                window.setLabelText("正在应用更新，请不要关闭程序");
             }
 
             for (TempUpdateFile f : updateFiles) {
@@ -537,7 +554,9 @@ public class Work {
             Log.info("正在进行收尾工作");
 
             if (window != null) {
-                window.setLabelText("正在进行收尾工作");
+                window.setPhase(4);
+                window.setLabelText("更新完成！");
+                window.clearFileProgress();
             }
 
             // 1.更新客户端版本号

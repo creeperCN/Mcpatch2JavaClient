@@ -181,6 +181,28 @@ public class BytesUtils {
     }
 
     /**
+     * 格式化剩余时间
+     *
+     * @param seconds 剩余秒数
+     * @return 格式化后的时间字符串，如 "31秒"、"2分15秒"、"1时30分"
+     */
+    public static String formatETA(long seconds) {
+        if (seconds <= 0) return "";
+        if (seconds < 60) return "预计剩余: " + seconds + "秒";
+        long minutes = seconds / 60;
+        long secs = seconds % 60;
+        if (minutes < 60) {
+            if (secs > 0) {
+                return "预计剩余: " + minutes + "分" + secs + "秒";
+            }
+            return "预计剩余: " + minutes + "分";
+        }
+        long hours = minutes / 60;
+        minutes = minutes % 60;
+        return "预计剩余: " + hours + "时" + minutes + "分";
+    }
+
+    /**
      * 从流里读取出字符串
      */
     public static String readIntoString(InputStream input) throws IOException {
