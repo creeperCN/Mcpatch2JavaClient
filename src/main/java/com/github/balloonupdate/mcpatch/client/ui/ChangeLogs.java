@@ -116,7 +116,12 @@ public class ChangeLogs {
 
     public void close()
     {
-        window.dispose();
+        Runnable task = () -> window.dispose();
+        if (SwingUtilities.isEventDispatchThread()) {
+            task.run();
+        } else {
+            SwingUtilities.invokeLater(task);
+        }
     }
 
     public void waitForClose()
@@ -130,14 +135,24 @@ public class ChangeLogs {
      * 列表文字
      */
     public void setContentText(String value) {
-        text.setText(value);
+        Runnable task = () -> text.setText(value);
+        if (SwingUtilities.isEventDispatchThread()) {
+            task.run();
+        } else {
+            SwingUtilities.invokeLater(task);
+        }
     }
 
     /**
      * 标题栏文字
      */
     public void setTitleText(String value) {
-        window.setTitle(value);
+        Runnable task = () -> window.setTitle(value);
+        if (SwingUtilities.isEventDispatchThread()) {
+            task.run();
+        } else {
+            SwingUtilities.invokeLater(task);
+        }
     }
 
     // 开发时调试用

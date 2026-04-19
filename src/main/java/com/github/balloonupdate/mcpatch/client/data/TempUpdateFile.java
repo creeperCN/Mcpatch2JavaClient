@@ -22,9 +22,14 @@ public class TempUpdateFile {
     public String path;
 
     /**
-     * 文件校验值
+     * 文件校验值（CRC64+CRC16 组合校验）
      */
     public String hash;
+
+    /**
+     * 文件的 SHA-256 校验值（可选，服务端不支持时为 null）
+     */
+    public String sha256;
 
     /**
      * 文件长度
@@ -52,6 +57,7 @@ public class TempUpdateFile {
 
         path = op.path;
         hash = op.hash;
+        sha256 = op.sha256;
         length = op.len;
         modified = op.modified;
         offset = op.offset;

@@ -14,7 +14,7 @@ public class ReduceReportingFrequency {
      */
     private long accumulated = 0L;
 
-    public long feed(int bytes) {
+    public long feed(long bytes) {
         accumulated += bytes;
 
         long now = System.currentTimeMillis();
@@ -31,5 +31,17 @@ public class ReduceReportingFrequency {
 
     public void reset() {
         lastReport = System.currentTimeMillis() - 200;
+    }
+
+    /**
+     * 返回尚未报告的累积字节数，并重置累积器。
+     * 用于下载完成时，确保所有字节都被报告。
+     *
+     * @return 尚未报告的字节数
+     */
+    public long flush() {
+        long value = accumulated;
+        accumulated = 0;
+        return value;
     }
 }

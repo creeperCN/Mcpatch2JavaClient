@@ -68,6 +68,8 @@ public class VersionMeta {
             case "update-file": {
                 String path = json.getString("path");
                 String hash = json.getString("hash");
+                // SHA-256 字段为可选，服务端不支持时返回 null
+                String sha256 = json.optString("sha256", null);
                 long len = json.getLong("len");
                 long modified = json.getLong("modified");
                 long offset = json.getLong("offset");
@@ -75,6 +77,7 @@ public class VersionMeta {
                 FileChange.UpdateFile op = new FileChange.UpdateFile();
                 op.path = path;
                 op.hash = hash;
+                op.sha256 = sha256;
                 op.len = len;
                 op.modified = modified;
                 op.offset = offset;

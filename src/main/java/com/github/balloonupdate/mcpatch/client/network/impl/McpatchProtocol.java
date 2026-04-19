@@ -76,6 +76,13 @@ public class McpatchProtocol implements UpdatingServer {
         if (len == 0)
             return "";
 
+        // 安全检查：防止整数溢出和 OOM
+        if (len > Integer.MAX_VALUE) {
+            throw new McpatchBusinessException(String.format(
+                    "私有协议(%d) 返回的文件大小 %d 超过最大限制(%d): %s",
+                    number, len, (long) Integer.MAX_VALUE, desc));
+        }
+
         byte[] buf = new byte[(int) len];
 
         try {
@@ -93,6 +100,9 @@ public class McpatchProtocol implements UpdatingServer {
 
         // 本次文件传输一共累计传输了多少字节
         long downloaded = 0;
+
+        // 标记下载循环是否成功完成（区别于close()异常导致的失败）
+        boolean downloadCompleted = false;
 
         try {
             try (OutputStream output = Files.newOutputStream(writeTo)) {
@@ -121,11 +131,19 @@ public class McpatchProtocol implements UpdatingServer {
 
                 } while (remains > 0);
 
-                // 完成下载
+                // 完成下载：先报告剩余累积字节，再发送完成回调
+                long remaining = report.flush();
+                if (remaining > 0) {
+                    callback.on(remaining, downloaded, size);
+                }
                 callback.on(0, size, size);
+
+                // 标记下载循环成功完成
+                downloadCompleted = true;
             }
         } catch (IOException e) {
-            if (fallback != null)
+            // 只有下载循环未完成时才调用fallback回退进度
+            if (!downloadCompleted && fallback != null)
                 fallback.on(downloaded);
 
             throw new McpatchBusinessException(e);
