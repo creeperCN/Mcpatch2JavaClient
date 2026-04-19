@@ -199,6 +199,7 @@ public class ChunkedDownloader {
         }
 
         Log.info("分片下载完成: " + file.path);
+        // 注意：焦点释放由 ParallelDownloader.doParallelDownload() 的 finally 块统一处理
     }
 
     /**
@@ -407,6 +408,8 @@ public class ChunkedDownloader {
 
         // 更新单文件进度条为合并状态（仅焦点文件）
         // 注意：焦点判断使用原始 filename，显示名称附加"(合并中)"后缀
+        // [修复] 合并前重新获取焦点并刷新锁定
+        acquireFocus(filename);
         if (window != null && isFocusFile(filename)) {
             final String displayName = getDisplayName(filename) + " (合并中)";
             SwingUtilities.invokeLater(() -> {
@@ -492,6 +495,8 @@ public class ChunkedDownloader {
 
         // 更新单文件进度条为校验状态（仅焦点文件）
         // 注意：焦点判断使用原始 filename，显示名称附加"(校验中)"后缀
+        // [修复] 校验前重新获取焦点并刷新锁定
+        acquireFocus(filename);
         if (window != null && isFocusFile(filename)) {
             final String displayName = getDisplayName(filename) + " (校验中)";
             SwingUtilities.invokeLater(() -> {
@@ -541,6 +546,9 @@ public class ChunkedDownloader {
         long now = System.currentTimeMillis();
         if (now - uiTimer.get() <= 300) return;
         uiTimer.set(now);
+
+        // [修复] 校验进度回调中也刷新焦点锁定，防止校验期间焦点被抢占
+        acquireFocus(filename);
 
         final long br = bytesRead;
         final long tb = totalFileBytes;
@@ -620,6 +628,11 @@ public class ChunkedDownloader {
             return; // 限频
         }
         uiTimer.set(now);
+
+        // [修复] 在进度回调中重试获取焦点
+        // 如果焦点文件已完成并释放了焦点，此文件可以接管单文件进度条
+        // 如果此文件已是焦点文件，acquireFocus 会刷新锁定时间
+        acquireFocus(filename);
 
         final String speedStr = speed.sampleSpeed2();
         final long fd = fileDownloaded;

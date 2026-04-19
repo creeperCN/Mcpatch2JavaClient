@@ -12,6 +12,12 @@ import java.util.concurrent.atomic.AtomicLong;
  * 设计背景：多线程下载时，如果每个线程都更新单文件进度条，文件名会疯狂闪烁。
  * 焦点机制只让一个"焦点文件"更新单文件进度条，其他文件只更新总进度。
  * 焦点锁定2秒，期间不会被其他文件抢占。
+ * <p>
+ * 焦点生命周期：
+ * 1. 文件开始下载时调用 acquireFocus() 尝试获取焦点
+ * 2. 焦点文件在进度回调中调用 acquireFocus() 刷新锁定时间，保持焦点
+ * 3. 文件下载完成（或失败）时调用 releaseFocus() 释放焦点
+ * 4. 其他文件的进度回调中调用 acquireFocus() 可在焦点释放后接管
  */
 public class FocusManager {
 
@@ -37,7 +43,12 @@ public class FocusManager {
     }
 
     /**
-     * 尝试获取焦点。如果当前没有焦点文件或锁定时间已过，则成为焦点文件。
+     * 尝试获取焦点。分三种情况：
+     * <ol>
+     *   <li>当前无焦点文件 → 获取焦点</li>
+     *   <li>调用者已是焦点文件 → 刷新锁定时间（保持焦点不丢失）</li>
+     *   <li>焦点锁定时间已过 → 抢占焦点</li>
+     * </ol>
      * <p>
      * 使用 synchronized 保证 check-then-act 的原子性，避免 TOCTOU 竞态条件。
      *
@@ -46,10 +57,36 @@ public class FocusManager {
     public void acquireFocus(String filename) {
         synchronized (focusLock) {
             long now = System.currentTimeMillis();
-            // 没有焦点文件，或者焦点锁定时间已过，可以抢占
-            if (focusFilename == null || now - focusLockTime.get() > FOCUS_LOCK_DURATION) {
+            if (focusFilename == null) {
+                // 无焦点文件，直接获取
                 this.focusFilename = filename;
                 focusLockTime.set(now);
+            } else if (filename.equals(focusFilename)) {
+                // 已是焦点文件，刷新锁定时间
+                focusLockTime.set(now);
+            } else if (now - focusLockTime.get() > FOCUS_LOCK_DURATION) {
+                // 锁定时间已过，抢占焦点
+                this.focusFilename = filename;
+                focusLockTime.set(now);
+            }
+            // 否则：焦点被其他文件持有且锁定未过期，获取失败（静默）
+        }
+    }
+
+    /**
+     * 释放焦点。当焦点文件下载完成（或失败）时调用，允许其他文件抢占焦点。
+     * <p>
+     * 仅当调用者恰好是当前焦点文件时才执行释放，否则为空操作。
+     * 释放后立即将 focusFilename 置为 null 并重置锁定时间，
+     * 确保下一个调用 acquireFocus() 的文件能立即获得焦点，无需等待锁定过期。
+     *
+     * @param filename 要释放焦点的文件名
+     */
+    public void releaseFocus(String filename) {
+        synchronized (focusLock) {
+            if (filename.equals(focusFilename)) {
+                this.focusFilename = null;
+                this.focusLockTime.set(0);
             }
         }
     }

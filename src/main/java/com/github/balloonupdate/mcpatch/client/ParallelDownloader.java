@@ -59,7 +59,7 @@ public class ParallelDownloader {
     private final int totalFileCount;
 
     /**
-     * 已完成的文件数（线程安全）
+     * 已成功完成的文件数（线程安全，仅下载成功时递增）
      */
     private final AtomicInteger completedFileCount = new AtomicInteger(0);
 
@@ -170,8 +170,11 @@ public class ParallelDownloader {
         // 提交下载任务
         List<Future<?>> futures = new ArrayList<>();
         for (TempUpdateFile f : files) {
+            // 在外层计算 filename，确保 finally 块中可以访问以释放焦点
+            final String filename = PathUtility.getFilename(f.path);
             futures.add(executor.submit(() -> {
                 focusManager.incrementActiveDownloadCount();
+                boolean success = false;
                 try {
                     // 判断是否需要分片下载
                     if (chunkedDownloader.shouldUseChunkedDownload(f)) {
@@ -179,13 +182,18 @@ public class ParallelDownloader {
                     } else {
                         downloadSingleFile(f);
                     }
+                    success = true;
                 } catch (Exception e) {
                     failures.add(new DownloadResult(f, e));
                 } finally {
                     focusManager.decrementActiveDownloadCount();
-                    // 文件完成（无论成功失败都算处理完毕）
-                    int completed = completedFileCount.incrementAndGet();
-                    updateStatusUI(completed);
+                    // 释放焦点，让其他正在下载的文件有机会接管单文件进度条
+                    focusManager.releaseFocus(filename);
+                    // 仅成功完成时递增计数（失败文件将在重试轮次中重新计数）
+                    if (success) {
+                        int completed = completedFileCount.incrementAndGet();
+                        updateStatusUI(completed);
+                    }
                 }
             }));
         }
@@ -224,9 +232,9 @@ public class ParallelDownloader {
      * 每次调用会创建独立的 ServerSession，确保线程安全。
      */
     private void downloadSingleFile(TempUpdateFile f) throws Exception {
-        try (ServerSession session = servers.createSession()) {
-            String filename = PathUtility.getFilename(f.path);
+        String filename = PathUtility.getFilename(f.path);
 
+        try (ServerSession session = servers.createSession()) {
             Log.debug("  开始下载 " + f.path + " (线程: " + Thread.currentThread().getName() + ")");
             Log.debug("    Download " + f.tempPath);
 
@@ -271,6 +279,10 @@ public class ParallelDownloader {
                         if (now2 - uiTimer.get() > 300) {
                             uiTimer.set(now2);
 
+                            // [修复] 在进度回调中重试获取焦点
+                            // 如果焦点文件已完成并释放了焦点，此文件可以接管单文件进度条
+                            acquireFocus(filename);
+
                             final String speedStr = speed.sampleSpeed2();
                             final long fileDownloaded = bytesCounter.get();
                             final boolean isFocus = isFocusFile(filename);
@@ -299,6 +311,9 @@ public class ParallelDownloader {
 
                     if (window != null) {
                         final String speedStr = speed.sampleSpeed2();
+
+                        // [修复] OnFail回调中也尝试获取焦点，确保回退进度能正确显示
+                        acquireFocus(filename);
                         final boolean isFocus = isFocusFile(filename);
 
                         SwingUtilities.invokeLater(() -> {
@@ -324,6 +339,8 @@ public class ParallelDownloader {
             // 显示校验状态（仅焦点文件）
             // 注意：校验阶段使用原始filename做焦点判断，而非verifyLabel，
             // 因为focusFilename存储的是原始文件名（不含"(校验中)"后缀）
+            // [修复] 校验前重新获取焦点并刷新锁定
+            acquireFocus(filename);
             if (window != null && isFocusFile(filename)) {
                 final String displayName = getDisplayName(filename) + " (校验中)";
                 SwingUtilities.invokeLater(() -> {
@@ -354,6 +371,8 @@ public class ParallelDownloader {
                 }
             }
         }
+        // 注意：焦点释放由 doParallelDownload() 的 finally 块统一处理，
+        // 而非在此处释放，确保校验阶段焦点不会被提前释放
     }
 
     /**
@@ -366,6 +385,9 @@ public class ParallelDownloader {
         long now = System.currentTimeMillis();
         if (now - uiTimer.get() <= 300) return;
         uiTimer.set(now);
+
+        // [修复] 校验进度回调中也刷新焦点锁定，防止校验期间焦点被抢占
+        acquireFocus(filename);
 
         final long br = bytesRead;
         final long tb = totalFileBytes;
