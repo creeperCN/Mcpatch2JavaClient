@@ -37,14 +37,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 同时测试 JDK 8 和 JDK 17 的兼容性
-        # JDK 8 是项目最低要求，JDK 17 是当前 LTS 版本
-        java-version: ["8", "17"]
+        # 同时测试 JDK 17 和 JDK 21 的兼容性
+        # JDK 17 是当前 LTS 版本，JDK 21 是最新 LTS 版本
+        # 注意：Gradle 8.10 和 Shadow 8.3.6 最低要求 JDK 11，不再支持 JDK 8
+        java-version: ["17", "21"]
         include:
-          - java-version: "8"
-            distribution: "zulu"     # JDK 8 推荐 Zulu 发行版
           - java-version: "17"
             distribution: "temurin"  # JDK 17 推荐 Temurin 发行版
+          - java-version: "21"
+            distribution: "zulu"     # JDK 21 推荐 Zulu 发行版
 
     steps:
       - name: 检出代码仓库

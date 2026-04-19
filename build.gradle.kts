@@ -1,4 +1,4 @@
-import com.gradleup.shadow.ShadowJar
+import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
 
 fun getVersionName(tagName: String) = if(tagName.startsWith("v")) tagName.substring(1) else tagName
 val gitTagName: String? get() = Regex("(?<=refs/tags/).*").find(System.getenv("GITHUB_REF") ?: "")?.value
