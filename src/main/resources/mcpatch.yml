@@ -113,3 +113,26 @@ max-chunks: 16
 # 是否启用分片下载，默认 true
 # 如果分片下载出现问题，可设为 false 回退到普通下载模式
 enable-chunked-download: true
+
+# ============================================
+# 防盗链配置（阿里云ESA A方案鉴权）
+# ============================================
+
+# 是否启用防盗链鉴权
+# 启用后，下载文件时会先向鉴权服务器获取 auth_key，然后拼接到下载 URL 中
+# 仅对 HTTP/HTTPS 协议生效，私有协议(mcpatch://)不受影响
+anti-hotlink-enabled: false
+
+# 鉴权 API 地址
+# 用于生成符合阿里云ESA A方案规范的鉴权密钥(auth_key)
+# 默认地址为官方提供的鉴权服务，如有自建服务可修改此地址
+anti-hotlink-auth-url: https://auth-api.mxzysoa.com/generate-auth-url
+
+# 鉴权 URL 有效时长，单位秒
+# 建议与CDN端配置的鉴权有效时长保持一致
+# 默认3600秒（1小时），auth_key在此时间内可复用，无需重复请求
+anti-hotlink-expire-time: 3600
+
+# 鉴权用户ID
+# 根据业务需求设置，默认为0
+anti-hotlink-uid: "0"

@@ -38,12 +38,26 @@ public class Servers implements UpdatingServer {
     public Servers(AppConfig config) throws McpatchBusinessException {
         this.config = config;
 
+        // 如果启用了防盗链，创建鉴权服务
+        AuthKeyService authKeyService = null;
+        if (config.antiHotlinkEnabled) {
+            authKeyService = new AuthKeyService(
+                    config.authApiUrl,
+                    config.authExpireTime,
+                    config.authUid,
+                    config.httpTimeout,
+                    config.httpHeaders
+            );
+            Log.info("防盗链鉴权已启用，鉴权API: " + config.authApiUrl);
+        }
+
         // 解析配置文件
         for (int i = 0; i < config.urls.size(); i++) {
             String url = config.urls.get(i);
 
             if (url.startsWith("http")) {
-                servers.add(new HttpProtocol(i, url, config));
+                // HTTP/HTTPS 协议支持防盗链，传入 authKeyService
+                servers.add(new HttpProtocol(i, url, config, authKeyService));
             } else if (url.startsWith("mcpatch")) {
                 servers.add(new McpatchProtocol(i, url, config));
             } else if (url.startsWith("webdav")) {

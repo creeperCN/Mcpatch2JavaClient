@@ -3,6 +3,7 @@ package com.github.balloonupdate.mcpatch.client.network.impl;
 import com.github.balloonupdate.mcpatch.client.config.AppConfig;
 import com.github.balloonupdate.mcpatch.client.data.Range;
 import com.github.balloonupdate.mcpatch.client.exceptions.McpatchBusinessException;
+import com.github.balloonupdate.mcpatch.client.network.AuthKeyService;
 import com.github.balloonupdate.mcpatch.client.network.UpdatingServer;
 import com.github.balloonupdate.mcpatch.client.utils.BytesUtils;
 import com.github.balloonupdate.mcpatch.client.utils.ReduceReportingFrequency;
@@ -52,9 +53,19 @@ public class HttpProtocol implements UpdatingServer {
      */
     OkHttpClient client;
 
+    /**
+     * 防盗链鉴权服务，为null时表示未启用防盗链
+     */
+    AuthKeyService authKeyService;
+
     public HttpProtocol(int number, String url, AppConfig config) {
+        this(number, url, config, null);
+    }
+
+    public HttpProtocol(int number, String url, AppConfig config, AuthKeyService authKeyService) {
         this.number = number;
         this.config = config;
+        this.authKeyService = authKeyService;
 
         if (!url.endsWith("/")) {
             url = url + "/";
@@ -171,6 +182,11 @@ public class HttpProtocol implements UpdatingServer {
 
         // 拼接 URL
         String url = baseUrl + path;
+
+        // 如果启用了防盗链，向鉴权服务请求 auth_key 并拼接到 URL 中
+        if (authKeyService != null) {
+            url = authKeyService.buildAuthUrl(url);
+        }
 
         // 构建请求
         Request req = buildRequest(url, range, null);
