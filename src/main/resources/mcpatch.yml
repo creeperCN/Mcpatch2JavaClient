@@ -121,7 +121,7 @@ enable-chunked-download: true
 # 是否启用防盗链鉴权
 # 启用后，下载文件时会先向鉴权服务器获取 auth_key，然后拼接到下载 URL 中
 # 仅对 HTTP/HTTPS 协议生效，私有协议(mcpatch://)不受影响
-anti-hotlink-enabled: false
+anti-hotlink-enabled: true
 
 # 鉴权 API 地址
 # 用于生成符合阿里云ESA A方案规范的鉴权密钥(auth_key)

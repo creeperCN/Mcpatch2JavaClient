@@ -261,6 +261,16 @@ public class AuthKeyService {
     }
 
     /**
+     * 关闭鉴权服务，释放资源。
+     * 关闭 OkHttp 连接池和调度器，清除缓存。
+     */
+    public void shutdown() {
+        cache.clear();
+        client.dispatcher().executorService().shutdown();
+        client.connectionPool().evictAll();
+    }
+
+    /**
      * 使指定文件路径的缓存失效。
      * <p>
      * 当下载请求因鉴权失败（如 CDN 返回 403）时调用此方法，

@@ -35,11 +35,15 @@ public class Servers implements UpdatingServer {
      */
     AtomicInteger current = new AtomicInteger(0);
 
+    /**
+     * 防盗链鉴权服务，为null时表示未启用防盗链
+     */
+    AuthKeyService authKeyService;
+
     public Servers(AppConfig config) throws McpatchBusinessException {
         this.config = config;
 
         // 如果启用了防盗链，创建鉴权服务
-        AuthKeyService authKeyService = null;
         if (config.antiHotlinkEnabled) {
             authKeyService = new AuthKeyService(
                     config.authApiUrl,
@@ -176,6 +180,11 @@ public class Servers implements UpdatingServer {
     public void close() throws Exception {
         for (UpdatingServer source : servers) {
             source.close();
+        }
+
+        // 关闭鉴权服务，释放 OkHttp 连接池等资源
+        if (authKeyService != null) {
+            authKeyService.shutdown();
         }
     }
 
