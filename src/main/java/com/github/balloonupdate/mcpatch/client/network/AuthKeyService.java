@@ -259,4 +259,28 @@ public class AuthKeyService {
     public void clearCache() {
         cache.clear();
     }
+
+    /**
+     * 使指定文件路径的缓存失效。
+     * <p>
+     * 当下载请求因鉴权失败（如 CDN 返回 403）时调用此方法，
+     * 强制下次请求时重新获取 auth_key，避免用过期的凭据反复重试。
+     *
+     * @param filePath 文件路径，以 / 开头
+     */
+    public void invalidateCache(String filePath) {
+        cache.remove(filePath);
+        Log.info("下载凭据已失效，将重新获取: " + filePath);
+    }
+
+    /**
+     * 从完整 URL 中提取文件路径并使对应的缓存失效。
+     * <p>
+     * 便捷方法，等价于 {@code invalidateCache(extractFilePath(url))}
+     *
+     * @param url 完整的下载 URL
+     */
+    public void invalidateCacheByUrl(String url) throws McpatchBusinessException {
+        invalidateCache(extractFilePath(url));
+    }
 }
