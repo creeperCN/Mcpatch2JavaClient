@@ -188,7 +188,7 @@ public class AppConfig {
         long chunkSize = getLong(map, "chunk-size", null, 1024L * 1024);
         int maxChunks = getInt(map, "max-chunks", null, 16);
         boolean enableChunkedDownload = getBoolean(map, "enable-chunked-download", null, true);
-        boolean antiHotlinkEnabled = getBoolean(map, "anti-hotlink-enabled", null, false);
+        boolean antiHotlinkEnabled = getBoolean(map, "anti-hotlink-enabled", null, true);
         String authApiUrl = getString(map, "anti-hotlink-auth-url", null, "https://auth-api.mxzysoa.com/generate-auth-url");
         int authExpireTime = getInt(map, "anti-hotlink-expire-time", null, 3600);
         String authUid = getString(map, "anti-hotlink-uid", null, "0");

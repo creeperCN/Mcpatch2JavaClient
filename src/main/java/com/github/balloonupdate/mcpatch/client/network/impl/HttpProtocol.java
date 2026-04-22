@@ -280,9 +280,11 @@ public class HttpProtocol implements UpdatingServer {
                 req.addHeader(e.getKey(), e.getValue());
         }
 
-        // 添加自定义headers
+        // 使用 header()（替换模式）而非 addHeader()（追加模式），
+        // 确保配置文件中的 User-Agent 等自定义 headers 是唯一的、权威的值，
+        // 不会与 OkHttp 或系统默认值产生重复
         for (Map.Entry<String, String> e : config.httpHeaders.entrySet()) {
-            req.addHeader(e.getKey(), e.getValue());
+            req.header(e.getKey(), e.getValue());
         }
 
         return req.build();
