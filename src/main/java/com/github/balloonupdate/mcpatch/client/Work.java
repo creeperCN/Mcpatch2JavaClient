@@ -92,7 +92,11 @@ public class Work {
 
         if (window != null) {
             window.setPhase(0);
-            window.setLabelText("正在检测更新");
+            if (config.antiHotlinkEnabled) {
+                window.setLabelText("正在连接鉴权服务器...");
+            } else {
+                window.setLabelText("正在检测更新");
+            }
             window.clearFileProgress();
         }
 
@@ -422,7 +426,11 @@ public class Work {
 
             if (window != null) {
                 window.setPhase(2);
-                window.setLabelText(String.format("正在下载更新文件 (%d 个文件)", updateFiles.size()));
+                if (config.antiHotlinkEnabled) {
+                    window.setLabelText("正在获取下载凭据...");
+                } else {
+                    window.setLabelText(String.format("正在下载更新文件 (%d 个文件)", updateFiles.size()));
+                }
                 window.clearFileProgress();
             }
 

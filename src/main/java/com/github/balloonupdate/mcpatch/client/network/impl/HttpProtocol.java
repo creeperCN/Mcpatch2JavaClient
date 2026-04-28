@@ -3,7 +3,9 @@ package com.github.balloonupdate.mcpatch.client.network.impl;
 import com.github.balloonupdate.mcpatch.client.config.AppConfig;
 import com.github.balloonupdate.mcpatch.client.data.Range;
 import com.github.balloonupdate.mcpatch.client.exceptions.McpatchBusinessException;
+import com.github.balloonupdate.mcpatch.client.network.AuthKeyService;
 import com.github.balloonupdate.mcpatch.client.network.UpdatingServer;
+import com.github.balloonupdate.mcpatch.client.logging.Log;
 import com.github.balloonupdate.mcpatch.client.utils.BytesUtils;
 import com.github.balloonupdate.mcpatch.client.utils.ReduceReportingFrequency;
 import com.github.balloonupdate.mcpatch.client.utils.RuntimeAssert;
@@ -52,9 +54,19 @@ public class HttpProtocol implements UpdatingServer {
      */
     OkHttpClient client;
 
+    /**
+     * 防盗链鉴权服务，为null时表示未启用防盗链
+     */
+    AuthKeyService authKeyService;
+
     public HttpProtocol(int number, String url, AppConfig config) {
+        this(number, url, config, null);
+    }
+
+    public HttpProtocol(int number, String url, AppConfig config, AuthKeyService authKeyService) {
         this.number = number;
         this.config = config;
+        this.authKeyService = authKeyService;
 
         if (!url.endsWith("/")) {
             url = url + "/";
@@ -162,6 +174,19 @@ public class HttpProtocol implements UpdatingServer {
      * @throws McpatchBusinessException 请求失败时
      */
     Response request(String path, Range range, String desc) throws McpatchBusinessException {
+        return request(path, range, desc, false);
+    }
+
+    /**
+     * 发起一个通用请求
+     * @param path 文件路径
+     * @param range 字节范围
+     * @param desc 请求的描述
+     * @param isAuthRetry 是否是鉴权重试（防止无限递归）
+     * @return 响应
+     * @throws McpatchBusinessException 请求失败时
+     */
+    Response request(String path, Range range, String desc, boolean isAuthRetry) throws McpatchBusinessException {
         // 检查输入参数，start不能大于end
         boolean partial_file = range.start > 0 || range.end > 0;
 
@@ -172,6 +197,11 @@ public class HttpProtocol implements UpdatingServer {
         // 拼接 URL
         String url = baseUrl + path;
 
+        // 如果启用了防盗链，向鉴权服务请求 auth_key 并拼接到 URL 中
+        if (authKeyService != null) {
+            url = authKeyService.buildAuthUrl(url);
+        }
+
         // 构建请求
         Request req = buildRequest(url, range, null);
 
@@ -180,7 +210,17 @@ public class HttpProtocol implements UpdatingServer {
             int code = rsp.code();
 
             // 检查状态码
-            if ((!partial_file && (code < 200 || code >= 300)) || (partial_file && code != 206)) {
+            boolean codeError = (!partial_file && (code < 200 || code >= 300)) || (partial_file && code != 206);
+
+            if (codeError) {
+                // 如果启用了防盗链且返回了可能是鉴权失败的状态码（403/401），
+                // 并且不是重试请求，则使缓存失效并用新凭据重试一次
+                if (authKeyService != null && !isAuthRetry && (code == 403 || code == 401)) {
+                    Log.warn(String.format("下载凭据可能已过期（HTTP %d），正在刷新凭据重试: %s", code, path));
+                    authKeyService.invalidateCacheByUrl(url);
+                    return request(path, range, desc, true);
+                }
+
                 // 如果状态码不对，就考虑输出响应体内容，因为通常会包含一些服务端返回的错误信息，对排查问题很有帮助
                 String body = rsp.peekBody(300).string();
 
@@ -212,6 +252,8 @@ public class HttpProtocol implements UpdatingServer {
             throw new McpatchBusinessException("连接中断，请检查网络。" + url, e);
         } catch (SocketTimeoutException e) {
             throw new McpatchBusinessException("连接超时，请检查网络。" + url, e);
+        } catch (McpatchBusinessException e) {
+            throw e;
         } catch (Exception e) {
             throw new McpatchBusinessException(e);
         }
@@ -238,9 +280,11 @@ public class HttpProtocol implements UpdatingServer {
                 req.addHeader(e.getKey(), e.getValue());
         }
 
-        // 添加自定义headers
+        // 使用 header()（替换模式）而非 addHeader()（追加模式），
+        // 确保配置文件中的 User-Agent 等自定义 headers 是唯一的、权威的值，
+        // 不会与 OkHttp 或系统默认值产生重复
         for (Map.Entry<String, String> e : config.httpHeaders.entrySet()) {
-            req.addHeader(e.getKey(), e.getValue());
+            req.header(e.getKey(), e.getValue());
         }
 
         return req.build();

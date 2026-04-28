@@ -140,6 +140,31 @@ public class AppConfig {
      */
     public boolean enableChunkedDownload;
 
+    /**
+     * 是否启用防盗链鉴权（阿里云ESA A方案）<p>
+     * 启用后，下载文件时会先向鉴权服务器请求 auth_key，然后拼接到下载 URL 中<p>
+     * 仅对 HTTP/HTTPS 协议生效，私有协议(mcpatch://)不受影响
+     */
+    public boolean antiHotlinkEnabled;
+
+    /**
+     * 鉴权 API 地址<p>
+     * 用于生成符合阿里云ESA A方案规范的鉴权密钥(auth_key)
+     */
+    public String authApiUrl;
+
+    /**
+     * 鉴权 URL 有效时长，单位秒<p>
+     * 建议与CDN端配置的鉴权有效时长保持一致，默认3600秒（1小时）
+     */
+    public int authExpireTime;
+
+    /**
+     * 鉴权用户ID<p>
+     * 根据业务需求设置，默认为0
+     */
+    public String authUid;
+
 
     public AppConfig(Map<String, Object> map) {
         List<String> urls = getList(map, "urls", null, new ArrayList<>());
@@ -163,6 +188,10 @@ public class AppConfig {
         long chunkSize = getLong(map, "chunk-size", null, 1024L * 1024);
         int maxChunks = getInt(map, "max-chunks", null, 16);
         boolean enableChunkedDownload = getBoolean(map, "enable-chunked-download", null, true);
+        boolean antiHotlinkEnabled = getBoolean(map, "anti-hotlink-enabled", null, true);
+        String authApiUrl = getString(map, "anti-hotlink-auth-url", null, "https://auth-api.mxzysoa.com/generate-auth-url");
+        int authExpireTime = getInt(map, "anti-hotlink-expire-time", null, 3600);
+        String authUid = getString(map, "anti-hotlink-uid", null, "0");
 
 //        if (urls.contains("webda"))
 //
@@ -188,6 +217,10 @@ public class AppConfig {
         this.chunkSize = chunkSize;
         this.maxChunks = maxChunks;
         this.enableChunkedDownload = enableChunkedDownload;
+        this.antiHotlinkEnabled = antiHotlinkEnabled;
+        this.authApiUrl = authApiUrl;
+        this.authExpireTime = authExpireTime;
+        this.authUid = authUid;
     }
 
     @SuppressWarnings("unchecked")

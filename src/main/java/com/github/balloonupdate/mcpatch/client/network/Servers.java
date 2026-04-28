@@ -35,15 +35,33 @@ public class Servers implements UpdatingServer {
      */
     AtomicInteger current = new AtomicInteger(0);
 
+    /**
+     * 防盗链鉴权服务，为null时表示未启用防盗链
+     */
+    AuthKeyService authKeyService;
+
     public Servers(AppConfig config) throws McpatchBusinessException {
         this.config = config;
+
+        // 如果启用了防盗链，创建鉴权服务
+        if (config.antiHotlinkEnabled) {
+            authKeyService = new AuthKeyService(
+                    config.authApiUrl,
+                    config.authExpireTime,
+                    config.authUid,
+                    config.httpTimeout,
+                    config.httpHeaders
+            );
+            Log.info("防盗链鉴权已启用，鉴权API: " + config.authApiUrl);
+        }
 
         // 解析配置文件
         for (int i = 0; i < config.urls.size(); i++) {
             String url = config.urls.get(i);
 
             if (url.startsWith("http")) {
-                servers.add(new HttpProtocol(i, url, config));
+                // HTTP/HTTPS 协议支持防盗链，传入 authKeyService
+                servers.add(new HttpProtocol(i, url, config, authKeyService));
             } else if (url.startsWith("mcpatch")) {
                 servers.add(new McpatchProtocol(i, url, config));
             } else if (url.startsWith("webdav")) {
@@ -162,6 +180,11 @@ public class Servers implements UpdatingServer {
     public void close() throws Exception {
         for (UpdatingServer source : servers) {
             source.close();
+        }
+
+        // 关闭鉴权服务，释放 OkHttp 连接池等资源
+        if (authKeyService != null) {
+            authKeyService.shutdown();
         }
     }
 
