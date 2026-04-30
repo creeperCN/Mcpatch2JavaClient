@@ -136,3 +136,38 @@ anti-hotlink-expire-time: 3600
 # 鉴权用户ID
 # 根据业务需求设置，默认为0
 anti-hotlink-uid: "0"
+
+# ============================================
+# 云控配置
+# ============================================
+
+# 云控服务器地址
+# 客户端启动时会从此地址拉取远程配置，覆盖本地配置中的安全敏感字段
+# 留空则不启用云控，使用纯本地配置
+cloud-server-url: https://auth-config.mxzysoa.com
+
+# 云控 API 密钥（由云控后台分配）
+cloud-api-key: ""
+
+# 云控 RSA 公钥（用于验证云端返回的配置签名）
+cloud-rsa-public-key: ""
+
+# ============================================
+# 密钥碎片化配置
+# 密钥被拆分为 3 个碎片，运行时通过 XOR 合成完整密钥
+# 碎片由管理后台的"生成客户端碎片"功能一键生成
+# 每个碎片单独无意义，必须 3 个同时存在才能还原密钥
+# ============================================
+
+# HMAC 签名密钥碎片（原始密钥 = frag1 XOR frag2 XOR frag3）
+cloud-hmac-frag1: ""
+cloud-hmac-frag2: ""
+cloud-hmac-frag3: ""
+
+# AES 加密密钥碎片（原始密钥 = frag1 XOR frag2 XOR frag3）
+cloud-aes-frag1: ""
+cloud-aes-frag2: ""
+cloud-aes-frag3: ""
+
+# 云控请求超时时间（毫秒），默认 10000ms（10秒）
+cloud-timeout: 10000

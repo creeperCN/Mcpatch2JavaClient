@@ -6,6 +6,7 @@ import com.github.balloonupdate.mcpatch.client.logging.ConsoleHandler;
 import com.github.balloonupdate.mcpatch.client.logging.FileHandler;
 import com.github.balloonupdate.mcpatch.client.logging.Log;
 import com.github.balloonupdate.mcpatch.client.logging.LogLevel;
+import com.github.balloonupdate.mcpatch.client.network.CloudConfigService;
 import com.github.balloonupdate.mcpatch.client.ui.McPatchWindow;
 import com.github.balloonupdate.mcpatch.client.utils.BytesUtils;
 import com.github.balloonupdate.mcpatch.client.utils.DialogUtility;
@@ -91,7 +92,61 @@ public class Main {
             // 准备各种目录
             Path progDir = getProgramDirectory();
             Path workDir = getWorkDirectory(progDir);
-            AppConfig config = new AppConfig(readConfig(progDir.resolve("mcpatch.yml")));
+
+            // 读取本地配置文件（作为基础配置）
+            Map<String, Object> localConfig = readConfig(progDir.resolve("mcpatch.yml"));
+
+            // 如果配置了 cloud-server-url，尝试从云控后端拉取远程配置
+            String cloudServerUrl = getString(localConfig, "cloud-server-url", null, "https://auth-config.mxzysoa.com");
+            if (!cloudServerUrl.isEmpty()) {
+                try {
+                    Log.info("检测到云控配置，正在从云控后端拉取配置: " + cloudServerUrl);
+
+                    String cloudApiKey = getString(localConfig, "cloud-api-key", null, "");
+                    String cloudRsaPublicKey = getString(localConfig, "cloud-rsa-public-key", null, "");
+                    int cloudTimeout = getInt(localConfig, "cloud-timeout", null, 10000);
+
+                    // --- 从碎片合成完整密钥（XOR: key = frag1 XOR frag2 XOR frag3）---
+                    String hmacSecret = assembleKeyFromFragments(
+                        getString(localConfig, "cloud-hmac-frag1", null, ""),
+                        getString(localConfig, "cloud-hmac-frag2", null, ""),
+                        getString(localConfig, "cloud-hmac-frag3", null, "")
+                    );
+                    String aesKey = assembleKeyFromFragments(
+                        getString(localConfig, "cloud-aes-frag1", null, ""),
+                        getString(localConfig, "cloud-aes-frag2", null, ""),
+                        getString(localConfig, "cloud-aes-frag3", null, "")
+                    );
+
+                    // 兼容旧配置：如果没配碎片，尝试读取完整密钥字段
+                    if (hmacSecret.isEmpty()) {
+                        hmacSecret = getString(localConfig, "cloud-hmac-secret", null, "");
+                    }
+                    if (aesKey.isEmpty()) {
+                        aesKey = getString(localConfig, "cloud-aes-key", null, "");
+                    }
+
+                    CloudConfigService cloudService = new CloudConfigService(
+                        cloudServerUrl, cloudApiKey, hmacSecret,
+                        aesKey, cloudRsaPublicKey, cloudTimeout
+                    );
+
+                    String remoteYaml = cloudService.fetchConfig();
+
+                    // 用云控返回的 YAML 替换本地配置内容
+                    Yaml yaml = new Yaml();
+                    Map<String, Object> remoteConfig = yaml.load(remoteYaml);
+
+                    if (remoteConfig != null) {
+                        localConfig = remoteConfig;
+                        Log.info("云控配置拉取成功，已使用远程配置");
+                    }
+                } catch (Exception e) {
+                    Log.warn("云控配置拉取失败，回退到本地配置: " + e.getMessage());
+                }
+            }
+
+            AppConfig config = new AppConfig(localConfig);
             Path baseDir = getUpdateDirectory(workDir, config);
 
             // 初始化文件日志系统
@@ -317,8 +372,6 @@ public class Main {
     // 从外部/内部读取配置文件并将内容返回
     static Map<String, Object> readConfig(Path external) throws McpatchBusinessException {
         try {
-//            System.out.println("aaa " + external.toFile().getAbsolutePath());
-
             Map<String, Object> result;
 
             Yaml yaml = new Yaml();
@@ -408,5 +461,54 @@ public class Main {
         Log.info("软件版本: " + Env.getVersion() + " (" + Env.getGitCommit() + ")");
         Log.info("虚拟机版本: " + jvmVendor + " (" + jvmVersion + ")");
         Log.info("操作系统: " + osName + ", " + osVersion + ", " + osArch);
+    }
+
+    // ============ 密钥碎片化：XOR 合成 ============
+
+    /**
+     * 从 3 个十六进制碎片合成完整密钥
+     * 原理: original = frag1 XOR frag2 XOR frag3
+     *
+     * @param frag1Hex 碎片1的十六进制字符串
+     * @param frag2Hex 碎片2的十六进制字符串
+     * @param frag3Hex 碎片3的十六进制字符串
+     * @return 合成后的完整密钥十六进制字符串，如果碎片为空则返回空字符串
+     */
+    static String assembleKeyFromFragments(String frag1Hex, String frag2Hex, String frag3Hex) {
+        // 任一碎片为空则无法合成
+        if (frag1Hex == null || frag1Hex.isEmpty()
+            || frag2Hex == null || frag2Hex.isEmpty()
+            || frag3Hex == null || frag3Hex.isEmpty()) {
+            return "";
+        }
+
+        // 验证十六进制格式
+        frag1Hex = frag1Hex.trim();
+        frag2Hex = frag2Hex.trim();
+        frag3Hex = frag3Hex.trim();
+
+        if (!frag1Hex.matches("[0-9a-fA-F]+") || !frag2Hex.matches("[0-9a-fA-F]+") || !frag3Hex.matches("[0-9a-fA-F]+")) {
+            Log.warn("密钥碎片包含非十六进制字符，无法合成");
+            return "";
+        }
+
+        if (frag1Hex.length() != frag2Hex.length() || frag2Hex.length() != frag3Hex.length()) {
+            Log.warn("密钥碎片长度不一致（" + frag1Hex.length() + ", " + frag2Hex.length() + ", " + frag3Hex.length() + "），无法合成");
+            return "";
+        }
+
+        int len = frag1Hex.length() / 2;
+        StringBuilder result = new StringBuilder(len * 2);
+
+        for (int i = 0; i < len; i++) {
+            int b1 = Integer.parseInt(frag1Hex.substring(i * 2, i * 2 + 2), 16);
+            int b2 = Integer.parseInt(frag2Hex.substring(i * 2, i * 2 + 2), 16);
+            int b3 = Integer.parseInt(frag3Hex.substring(i * 2, i * 2 + 2), 16);
+            int original = b1 ^ b2 ^ b3;
+            result.append(String.format("%02x", original));
+        }
+
+        Log.info("密钥碎片合成成功（" + len + " 字节）");
+        return result.toString();
     }
 }
