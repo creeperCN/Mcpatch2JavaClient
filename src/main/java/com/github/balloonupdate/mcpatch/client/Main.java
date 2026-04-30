@@ -97,33 +97,33 @@ public class Main {
             Map<String, Object> localConfig = readConfig(progDir.resolve("mcpatch.yml"));
 
             // 如果配置了 cloud-server-url，尝试从云控后端拉取远程配置
-            String cloudServerUrl = getString(localConfig, "cloud-server-url", null, "https://auth-config.mxzysoa.com");
+            String cloudServerUrl = AppConfig.getString(localConfig, "cloud-server-url", null, "https://auth-config.mxzysoa.com");
             if (!cloudServerUrl.isEmpty()) {
                 try {
                     Log.info("检测到云控配置，正在从云控后端拉取配置: " + cloudServerUrl);
 
-                    String cloudApiKey = getString(localConfig, "cloud-api-key", null, "");
-                    String cloudRsaPublicKey = getString(localConfig, "cloud-rsa-public-key", null, "");
-                    int cloudTimeout = getInt(localConfig, "cloud-timeout", null, 10000);
+                    String cloudApiKey = AppConfig.getString(localConfig, "cloud-api-key", null, "");
+                    String cloudRsaPublicKey = AppConfig.getString(localConfig, "cloud-rsa-public-key", null, "");
+                    int cloudTimeout = AppConfig.getInt(localConfig, "cloud-timeout", null, 10000);
 
                     // --- 从碎片合成完整密钥（XOR: key = frag1 XOR frag2 XOR frag3）---
                     String hmacSecret = assembleKeyFromFragments(
-                        getString(localConfig, "cloud-hmac-frag1", null, ""),
-                        getString(localConfig, "cloud-hmac-frag2", null, ""),
-                        getString(localConfig, "cloud-hmac-frag3", null, "")
+                        AppConfig.getString(localConfig, "cloud-hmac-frag1", null, ""),
+                        AppConfig.getString(localConfig, "cloud-hmac-frag2", null, ""),
+                        AppConfig.getString(localConfig, "cloud-hmac-frag3", null, "")
                     );
                     String aesKey = assembleKeyFromFragments(
-                        getString(localConfig, "cloud-aes-frag1", null, ""),
-                        getString(localConfig, "cloud-aes-frag2", null, ""),
-                        getString(localConfig, "cloud-aes-frag3", null, "")
+                        AppConfig.getString(localConfig, "cloud-aes-frag1", null, ""),
+                        AppConfig.getString(localConfig, "cloud-aes-frag2", null, ""),
+                        AppConfig.getString(localConfig, "cloud-aes-frag3", null, "")
                     );
 
                     // 兼容旧配置：如果没配碎片，尝试读取完整密钥字段
                     if (hmacSecret.isEmpty()) {
-                        hmacSecret = getString(localConfig, "cloud-hmac-secret", null, "");
+                        hmacSecret = AppConfig.getString(localConfig, "cloud-hmac-secret", null, "");
                     }
                     if (aesKey.isEmpty()) {
-                        aesKey = getString(localConfig, "cloud-aes-key", null, "");
+                        aesKey = AppConfig.getString(localConfig, "cloud-aes-key", null, "");
                     }
 
                     CloudConfigService cloudService = new CloudConfigService(
